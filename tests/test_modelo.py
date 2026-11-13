@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from app import rutas
+from tests.conftest import LOTE_COMPLETO
 from app.services.modelo import ErrorModelo, cargar_pipeline
 
 # Probabilidades obtenidas con pipeline_ganador.joblib y las versiones de requirements.txt
@@ -21,8 +22,8 @@ def test_perfiles_dan_probabilidades_de_referencia(servicio):
     assert obtenidas == REFERENCIA_PERFILES
 
 
-def test_plantilla_da_probabilidades_de_referencia(servicio):
-    lote = servicio.evaluar_lote(pd.read_csv(rutas.PLANTILLA_LOTE))
+def test_formato_completo_da_probabilidades_de_referencia(servicio):
+    lote = servicio.evaluar_lote(pd.read_csv(LOTE_COMPLETO))
     obtenidas = dict(zip(lote.resultado["id_estudiante"], lote.resultado["Prob. Deserción"]))
     assert obtenidas == REFERENCIA_PLANTILLA
 

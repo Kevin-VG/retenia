@@ -20,10 +20,10 @@
 
 | Función | Descripción |
 |---|---|
-| **Evaluar estudiante** | Formulario con 10 datos clave → probabilidad de abandono, semáforo (🟢 🟡 🔴), qué datos suben o bajan el riesgo y plan de acción sugerido. |
-| **Carga por lote** | Plantilla Excel o CSV descargable. Abre o arrastra el archivo → revisión fila por fila (errores y advertencias), tabla ordenada por riesgo, filtros, exportación a CSV/Excel. |
-| **Historial** | Guarda evaluaciones en una base local (SQLite) con notas de seguimiento. Búsqueda por ID, nombre o notas. |
-| **Ficha PDF** | Informe por estudiante listo para derivar a Bienestar Universitario. |
+| **Evaluar estudiante** | Formulario con 10 datos clave → riesgo estimado de deserción, nivel (🟢 bajo · 🟡 moderado · 🔴 alto), qué datos suben o bajan el riesgo y plan de acción sugerido. |
+| **Evaluar desde archivo** | Plantilla Excel en español con listas desplegables y ayuda en cada celda. Abre o arrastra el archivo → revisión fila por fila (errores y advertencias), tabla ordenada por riesgo, filtros, exportación a Excel/CSV. |
+| **Historial** | Guarda evaluaciones en una base local (SQLite) con notas de seguimiento. Búsqueda por ID, nombre o notas y filtro por fecha. |
+| **Ficha PDF** | Informe por estudiante con espacio de seguimiento y firma. El nombre de la institución, el área y el responsable se configuran en *Acerca de y ajustes*. |
 
 **Privacidad:** todo se calcula en el equipo. Los datos de estudiantes nunca salen de la computadora;
 el historial vive en `%APPDATA%\RetenIA\historial.db`.
@@ -54,33 +54,41 @@ si no coincide, avisa en vez de dar predicciones poco fiables.
 
 ## Capturas
 
-| Carga por lote | Revisión de problemas |
+| Evaluar desde archivo | Revisión de problemas |
 |---|---|
-| ![Lote](docs/capturas/lote.png) | ![Problemas](docs/capturas/problemas.png) |
+| ![Evaluar desde archivo](docs/capturas/lote.png) | ![Problemas](docs/capturas/problemas.png) |
 
 | Historial | Ficha |
 |---|---|
 | ![Historial](docs/capturas/historial.png) | ![Ficha](docs/capturas/ficha.png) |
 
-## Carga por lote
+## Evaluar desde archivo
 
-**Plantilla:** en *Carga por lote → Descargar plantilla* hay dos opciones.
+**Plantilla:** *Evaluar desde archivo → Descargar plantilla Excel*. Incluye:
 
-- **Excel (recomendada):** hoja de *Instrucciones*, hoja *Estudiantes* con 4 ejemplos, *Diccionario* con el
-  significado y los valores permitidos de cada columna, y listas desplegables. Excel avisa si escribes un
-  valor no permitido.
-- **CSV:** las mismas columnas con 4 filas de ejemplo.
+- **Instrucciones:** pasos para completarla y un ejemplo de fila completa.
+- **Estudiantes:** una fila por estudiante. Títulos en español; las columnas azules (con `*`) son obligatorias
+  y las grises opcionales. Al seleccionar una celda, Excel muestra qué escribir; las columnas de opciones
+  (Carrera, Sí/No, Turno, Género, Estado civil) tienen lista desplegable y Excel avisa si el valor no es válido.
+- **Valores válidos:** significado, obligatoriedad, valores permitidos, rango habitual y ejemplo de cada columna.
 
-El archivo debe tener las **36 columnas** del dataset UCI (mismos nombres en inglés). Columnas opcionales:
-`id_estudiante` (identificador) y `dropout` (0/1) o `Target`, para comparar el modelo con el resultado real.
+**Columnas obligatorias (10):** las mismas del formulario individual (carrera, edad, materias matriculadas y
+aprobadas por semestre, convalidadas del 2do semestre, pagos al día, deudas y beca). Las **opcionales**
+(promedios, evaluaciones, nota de admisión, turno, género…) mejoran la estimación; si faltan o están vacías
+se usa el valor típico (mediana), igual que en el formulario. También se acepta un CSV (`,` o `;`, UTF-8 o
+ANSI de Excel, decimales con punto o coma) con los mismos títulos, y el formato completo anterior de 36
+columnas con los nombres originales del dataset.
+
+**Resultado real (opcional):** una columna `Abandonó` (Sí/No) —o `dropout` (1/0) o `Target`— hace que la app
+compare sus alertas con lo ocurrido: cuántos abandonos detectó, precisión de las alertas, exactitud, F1 y AUC.
 
 **Revisión fila por fila.** Al cargar el archivo, cada fila se revisa y la pestaña *Problemas* indica la
 fila del archivo, la columna, el valor y qué corregir. Se puede exportar.
 
 | Nivel | Casos | Qué pasa con la fila |
 |---|---|---|
-| ✗ **Error** | vacío, texto en un campo numérico, decimal donde va un entero, Sí/No distinto de 0/1, valor imposible (nota > 20, edad negativa…), aprobadas o convalidadas mayores que matriculadas | **No se evalúa** |
-| ⚠ **Advertencia** | código que el modelo no conoce, valor fuera de lo visto en entrenamiento, promedio > 0 sin aprobadas, ID repetido | Se evalúa, con aviso en la columna *Avisos* |
+| ✗ **Error** | dato obligatorio vacío, texto no reconocido (carrera inexistente, «Tal vez» en un Sí/No), decimal donde va un entero, valor fuera del rango permitido (nota > 20, edad negativa…), aprobadas o convalidadas mayores que matriculadas | **No se evalúa** |
+| ⚠ **Advertencia** | código no reconocido, valor poco habitual, promedio > 0 sin aprobadas, ID repetido | Se evalúa, con aviso en la columna *Avisos* |
 
 Si faltan columnas obligatorias, la app las lista todas y no carga el archivo.
 
@@ -103,15 +111,15 @@ python -m pytest            # pruebas (modelo, servicios, interfaz)
 app/
 ├── main.py              arranque (splash, carga del modelo, traducción de Qt)
 ├── core/                lógica sin interfaz: variables, semáforo, factores, lotes, métricas
-├── services/            modelo, historial (SQLite), ficha HTML/PDF
+├── services/            modelo, historial (SQLite), plantilla Excel, ficha HTML/PDF, preferencias
 ├── ui/                  ventana y vistas en PySide6
 └── resources/
     ├── model/
     │   ├── pipeline_ganador.joblib   el modelo, tal cual
     │   └── config.json               umbral, medianas, rangos del formulario, métricas
-    └── estilos, iconos, plantilla de lote
+    └── estilos e iconos
 tools/generar_icono.py
-tests/                   pytest
+tests/                   pytest (tests/datos: archivo de prueba en el formato completo de 36 columnas)
 packaging/               PyInstaller (.spec) e Inno Setup (.iss)
 .github/workflows/       CI y publicación de Releases
 ```

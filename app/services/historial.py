@@ -95,9 +95,13 @@ class Historial:
         return len(valores)
 
     def buscar(self, texto: str = "", semaforo: str | None = None, origen: str | None = None,
-               limite: int = 5000) -> list[Registro]:
+               desde: str | None = None, limite: int = 5000) -> list[Registro]:
+        """Filtra por texto (ID, nombre, notas), nivel, origen y fecha mínima (ISO, p. ej. «2026-11-01»)."""
         sql = "SELECT * FROM evaluaciones WHERE 1=1"
         params: list = []
+        if desde:
+            sql += " AND fecha >= ?"
+            params.append(desde)
         if texto.strip():
             sql += " AND (estudiante_id LIKE ? OR nombre LIKE ? OR notas LIKE ?)"
             patron = f"%{texto.strip()}%"
@@ -112,6 +116,15 @@ class Historial:
         params.append(limite)
         with closing(self._conectar()) as con:
             return [self._registro(r) for r in con.execute(sql, params)]
+
+    def fecha_archivo_guardado(self, nombre_archivo: str) -> str | None:
+        """Fecha del último guardado de un archivo de evaluación (None si nunca se guardó)."""
+        with closing(self._conectar()) as con:
+            fila = con.execute(
+                "SELECT MAX(fecha) FROM evaluaciones WHERE origen = 'lote' AND (notas = ? OR notas LIKE ?)",
+                (f"Archivo: {nombre_archivo}", f"Archivo: {nombre_archivo} · %"),
+            ).fetchone()
+        return fila[0] if fila and fila[0] else None
 
     def obtener(self, registro_id: int) -> Registro | None:
         with closing(self._conectar()) as con:

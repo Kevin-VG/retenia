@@ -3,13 +3,14 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox,
     QPlainTextEdit, QPushButton, QTextBrowser, QVBoxLayout,
 )
 
+from app.services import preferencias
 from app.services.reporte import exportar_pdf, ficha_html
 
 
@@ -48,6 +49,7 @@ class DialogoFicha(QDialog):
                  notas="", historial=None, registro_id=None):
         super().__init__(parent)
         self.setWindowTitle(f"Ficha del estudiante {estudiante_id or ''}".strip())
+        self.preferencias = preferencias.cargar()
         self.resize(820, 900)
         self.servicio = servicio
         self.resultado = resultado
@@ -61,7 +63,10 @@ class DialogoFicha(QDialog):
         self.notas = QPlainTextEdit(notas)
         self.notas.setPlaceholderText("Notas de seguimiento (se incluyen en la ficha)")
         self.notas.setMaximumHeight(80)
-        self.notas.textChanged.connect(self._refrescar)
+        # Redibujar la vista previa al dejar de escribir, no en cada tecla
+        self._temporizador = QTimer(self, singleShot=True, interval=300)
+        self._temporizador.timeout.connect(self._refrescar)
+        self.notas.textChanged.connect(self._temporizador.start)
 
         btn_pdf = QPushButton("Exportar PDF…")
         btn_pdf.setObjectName("primario")
@@ -88,7 +93,7 @@ class DialogoFicha(QDialog):
     def _html(self) -> str:
         return ficha_html(
             self.resultado, self.servicio.medianas, notas=self.notas.toPlainText(),
-            modelo=self.servicio.nombre_modelo, **self.meta,
+            **self.meta, **self.preferencias,
         )
 
     def _refrescar(self) -> None:
@@ -97,6 +102,7 @@ class DialogoFicha(QDialog):
         self.vista.verticalScrollBar().setValue(barra)
 
     def _exportar(self) -> None:
+        self._refrescar()
         guardar_pdf_interactivo(self, self._html(), self.meta["estudiante_id"], self.meta["fecha"])
 
     def _guardar_notas(self) -> None:

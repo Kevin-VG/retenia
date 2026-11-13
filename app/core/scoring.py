@@ -7,17 +7,13 @@ import io
 import numpy as np
 import pandas as pd
 
+from app.core.validacion import COL_REAL, TARGET_COL
 from app.core.variables import (
     ALL_FEATURE_COLS, COL_APROB_1, COL_APROB_2, COL_BECA, COL_DEUDA, COL_EDAD,
-    COL_MATRIC_1, COL_MATRIC_2, COL_PAGOS,
+    COL_MATRIC_1, COL_MATRIC_2, COL_PAGOS, normalizar_texto,
 )
 
-TARGET_COL = "Target"
-POSITIVE_LABEL = "Dropout"
 CORTE_ROJO = 0.60  # desde aquí la alerta pasa de amarilla a roja
-
-# El CSV del zip de UCI trae "Marital status"; ucimlrepo entrega "Marital Status"
-ALIAS_COLUMNAS = {"Marital status": "Marital Status"}
 
 SEMESTRES = ("1st", "2nd")
 
@@ -26,6 +22,14 @@ TEXTO_ESTADO = {
     "Amarillo": ("Riesgo moderado", "Activar alerta y seguimiento cercano."),
     "Verde": ("Riesgo bajo", "Mantener seguimiento regular."),
 }
+
+
+def texto_escala(umbral: float) -> str:
+    """Escala de niveles en palabras, p. ej. «Bajo: menos de 40 % · Moderado: 40 % a 60 % · Alto: 60 % o más»."""
+    u, corte = umbral * 100, max(CORTE_ROJO, umbral) * 100
+    if corte <= u:
+        return f"Bajo: menos de {u:.0f} % · Alto: {u:.0f} % o más"
+    return f"Bajo: menos de {u:.0f} % · Moderado: {u:.0f} % a {corte:.0f} % · Alto: {corte:.0f} % o más"
 
 
 def semaforo(probabilidades, umbral: float) -> np.ndarray:
@@ -105,20 +109,29 @@ def recomendaciones(perfil: dict, probabilidad: float, umbral: float) -> list:
     return recs
 
 
-def _normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
+def _limpiar(df: pd.DataFrame) -> pd.DataFrame:
+    """Títulos sin espacios sobrantes y sin filas totalmente vacías (conserva el número de fila)."""
     df.columns = df.columns.astype(str).str.strip()
-    return df.rename(columns=ALIAS_COLUMNAS)
+    df = df.loc[:, ~df.columns.str.match(r"^Unnamed: \d+$")]
+    texto = df.astype(str).apply(lambda s: s.str.strip())
+    return df[~(df.isna() | (texto == "")).all(axis=1)]
 
 
 def leer_lote(contenido: bytes) -> pd.DataFrame:
-    """Lee un CSV separado por ',' o ';'. Lanza ValueError si no se puede leer."""
+    """Lee un CSV separado por ',' o ';' (UTF-8 o ANSI de Excel). Lanza ValueError si no se puede leer."""
     cabecera = contenido.split(b"\n", 1)[0]
     sep = ";" if cabecera.count(b";") > cabecera.count(b",") else ","
-    try:
-        df = pd.read_csv(io.BytesIO(contenido), sep=sep, encoding="utf-8-sig")
-    except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as e:
-        raise ValueError(f"No se pudo leer el CSV: {e}") from e
-    return _normalizar_columnas(df)
+    for codificacion in ("utf-8-sig", "cp1252"):
+        try:
+            df = pd.read_csv(io.BytesIO(contenido), sep=sep, encoding=codificacion, dtype=object)
+            break
+        except UnicodeDecodeError:
+            continue
+        except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+            raise ValueError(f"No se pudo leer el CSV: {e}") from e
+    else:
+        raise ValueError("No se pudo leer el CSV: codificación de texto no reconocida.")
+    return _limpiar(df)
 
 
 def leer_excel(ruta) -> pd.DataFrame:
@@ -129,18 +142,22 @@ def leer_excel(ruta) -> pd.DataFrame:
             df = libro.parse(hoja)
     except Exception as e:  # openpyxl lanza tipos variados según el daño del archivo
         raise ValueError(f"No se pudo leer el Excel: {e}") from e
-    return _normalizar_columnas(df)
+    return _limpiar(df)
 
 
 def etiquetas_reales(df: pd.DataFrame):
-    """Devuelve y (0/1) si el lote trae resultado real utilizable; si no, None."""
-    if "dropout" in df.columns:
-        y = pd.to_numeric(df["dropout"], errors="coerce")
+    """Devuelve y (0/1) si el archivo trae el resultado real utilizable; si no, None.
+
+    Columna «Abandonó» (Sí/No o 1/0) o, en el formato original, «Target» (Dropout = abandonó).
+    """
+    if COL_REAL in df.columns:
+        texto = df[COL_REAL].map(lambda v: normalizar_texto(v) if isinstance(v, str) else v)
+        y = pd.to_numeric(texto.replace({"si": 1, "no": 0}), errors="coerce")
     elif TARGET_COL in df.columns:
-        y = (df[TARGET_COL].astype(str).str.strip() == POSITIVE_LABEL).astype(int)
+        y = (df[TARGET_COL].astype(str).str.strip() == "Dropout").astype(int)
     else:
         return None
-    return y if y.isin([0, 1]).all() and y.nunique() == 2 else None
+    return y.astype(int) if y.isin([0, 1]).all() and y.nunique() == 2 else None
 
 
 def metricas(y_true, y_proba, umbral: float) -> dict:
@@ -150,7 +167,12 @@ def metricas(y_true, y_proba, umbral: float) -> dict:
         recall_score, roc_auc_score,
     )
     y_pred = (np.asarray(y_proba) >= umbral).astype(int)
+    y_true = np.asarray(y_true)
     return {
+        "n": int(len(y_true)),
+        "abandonaron": int(y_true.sum()),
+        "detectados": int(((y_pred == 1) & (y_true == 1)).sum()),
+        "alertas": int(y_pred.sum()),
         "accuracy": accuracy_score(y_true, y_pred),
         "precision": precision_score(y_true, y_pred, zero_division=0),
         "recall": recall_score(y_true, y_pred),

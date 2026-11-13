@@ -72,7 +72,6 @@ ENTRADAS_FORMULARIO = [
     COL_PAGOS, COL_DEUDA, COL_BECA,
 ]
 
-COLUMNAS_SI_NO = set(BINARY_COLS)
 
 ETIQUETAS = {
     "Marital Status": "Estado civil",
@@ -84,12 +83,12 @@ ETIQUETAS = {
     "Father's qualification": "Estudios del padre",
     "Mother's occupation": "Ocupación de la madre",
     "Father's occupation": "Ocupación del padre",
-    "Daytime/evening attendance": "Turno diurno",
-    "Displaced": "Estudiante desplazado",
+    "Daytime/evening attendance": "Turno",
+    "Displaced": "Vive fuera de su lugar de origen",
     "Educational special needs": "Necesidades educativas especiales",
     "Debtor": "Tiene deudas pendientes",
     "Tuition fees up to date": "Pagos de matrícula al día",
-    "Gender": "Género masculino",
+    "Gender": "Género",
     "Scholarship holder": "Tiene beca",
     "International": "Estudiante internacional",
     "Application order": "Orden de preferencia de la carrera",
@@ -141,12 +140,77 @@ COLUMNAS_DECIMALES = {
 }
 
 
+ESTADO_CIVIL = {
+    1: "Soltero(a)", 2: "Casado(a)", 3: "Viudo(a)", 4: "Divorciado(a)",
+    5: "Unión de hecho", 6: "Separado(a) legalmente",
+}
+
+# Columnas que se escriben con texto (lista desplegable en la plantilla) en vez de con códigos
+SI_NO = {1: "Sí", 0: "No"}
+OPCIONES = {
+    COL_CARRERA: CARRERAS,
+    "Marital Status": ESTADO_CIVIL,
+    "Gender": {1: "Masculino", 0: "Femenino"},
+    "Daytime/evening attendance": {1: "Diurno", 0: "Nocturno"},
+    **{c: SI_NO for c in BINARY_COLS if c not in ("Gender", "Daytime/evening attendance")},
+}
+
+# Carga desde archivo: las 10 columnas del formulario son obligatorias; el resto es opcional y,
+# si falta, toma el valor típico (mediana), igual que en la evaluación individual.
+COLUMNAS_OBLIGATORIAS = list(ENTRADAS_FORMULARIO)
+COLUMNAS_OPCIONALES_PLANTILLA = [
+    "Curricular units 1st sem (grade)", "Curricular units 2nd sem (grade)",
+    COL_CONV_1,
+    "Curricular units 1st sem (evaluations)", "Curricular units 2nd sem (evaluations)",
+    "Curricular units 1st sem (without evaluations)", "Curricular units 2nd sem (without evaluations)",
+    "Admission grade", "Previous qualification (grade)", "Application order",
+    "Daytime/evening attendance", "Gender", "Marital Status", "Displaced",
+    "Educational special needs", "International",
+]
+COLUMNAS_PLANTILLA = COLUMNAS_OBLIGATORIAS + COLUMNAS_OPCIONALES_PLANTILLA
+
+# Explicación breve de cada columna de la plantilla
+DESCRIPCIONES = {
+    COL_CARRERA: "Carrera en la que está matriculado el estudiante.",
+    COL_EDAD: "Edad (en años) que tenía al matricularse.",
+    COL_MATRIC_1: "Número de materias en las que se matriculó en el 1er semestre.",
+    COL_APROB_1: "Número de materias que aprobó en el 1er semestre.",
+    COL_MATRIC_2: "Número de materias en las que se matriculó en el 2do semestre.",
+    COL_APROB_2: "Número de materias que aprobó en el 2do semestre.",
+    COL_CONV_2: "Materias del 2do semestre reconocidas por estudios anteriores (sin cursarlas).",
+    COL_PAGOS: "¿Tiene sus pagos de matrícula al día?",
+    COL_DEUDA: "¿Tiene deudas pendientes con la institución?",
+    COL_BECA: "¿Tiene alguna beca?",
+    "Curricular units 1st sem (grade)": "Promedio de notas del 1er semestre (escala 0 a 20).",
+    "Curricular units 2nd sem (grade)": "Promedio de notas del 2do semestre (escala 0 a 20).",
+    COL_CONV_1: "Materias del 1er semestre reconocidas por estudios anteriores (sin cursarlas).",
+    "Curricular units 1st sem (evaluations)": "Número de evaluaciones (exámenes) que rindió en el 1er semestre.",
+    "Curricular units 2nd sem (evaluations)": "Número de evaluaciones (exámenes) que rindió en el 2do semestre.",
+    "Curricular units 1st sem (without evaluations)": "Materias del 1er semestre en las que no rindió ninguna evaluación.",
+    "Curricular units 2nd sem (without evaluations)": "Materias del 2do semestre en las que no rindió ninguna evaluación.",
+    "Admission grade": "Nota de admisión en escala de 0 a 200 (por ejemplo, 14.5 sobre 20 equivale a 145).",
+    "Previous qualification (grade)": "Nota de los estudios previos (secundaria) en escala de 0 a 200.",
+    "Application order": "Lugar de preferencia en que eligió esta carrera al postular (0 = primera opción).",
+    "Daytime/evening attendance": "Turno en el que estudia.",
+    "Gender": "Género del estudiante.",
+    "Marital Status": "Estado civil del estudiante.",
+    "Displaced": "¿Vive fuera de su ciudad o lugar de origen para estudiar?",
+    "Educational special needs": "¿Tiene necesidades educativas especiales?",
+    "International": "¿Es estudiante internacional?",
+}
+
+
+def normalizar_texto(texto) -> str:
+    """Minúsculas, sin tildes ni espacios sobrantes: para comparar títulos y opciones escritas a mano."""
+    import unicodedata
+    texto = unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode("ascii")
+    return " ".join(texto.lower().split())
+
+
 def describir_valor(col: str, valor) -> str:
     """Texto legible para un valor de una variable del modelo."""
-    if col == COL_CARRERA:
-        return CARRERAS.get(int(valor), f"Código {int(valor)}")
-    if col in COLUMNAS_SI_NO:
-        return "Sí" if int(valor) == 1 else "No"
+    if col in OPCIONES:
+        return OPCIONES[col].get(int(valor), f"Código {int(valor)}")
     if col in COLUMNAS_DECIMALES:
         return f"{float(valor):.2f}"
     if col in NOMINAL_COLS:

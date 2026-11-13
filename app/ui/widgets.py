@@ -1,11 +1,11 @@
 """Componentes reutilizables de la interfaz."""
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
-COLOR_ESTADO = {"Rojo": "#d03b3b", "Amarillo": "#e0a106", "Verde": "#0c8a0c"}
+COLOR_ESTADO = {"Rojo": "#c62828", "Amarillo": "#b77900", "Verde": "#0c7a0c"}
 FONDO_ESTADO = {"Rojo": "#fdecec", "Amarillo": "#fff6dd", "Verde": "#e8f6e8"}
 ICONO_ESTADO = {"Rojo": "●", "Amarillo": "●", "Verde": "●"}
 NOMBRE_ESTADO = {"Rojo": "Riesgo alto", "Amarillo": "Riesgo moderado", "Verde": "Riesgo bajo"}
@@ -27,9 +27,18 @@ class Tarjeta(QFrame):
 
 
 class TarjetaKPI(Tarjeta):
+    """Tarjeta de resumen (título + cifra). Si es `pulsable`, emite `pulsada` al hacer clic."""
+
+    pulsada = Signal()
+
     def __init__(self, titulo: str, valor: str = "—", color: str | None = None,
-                 parent: QWidget | None = None):
+                 parent: QWidget | None = None, pulsable: bool = False, ayuda: str = ""):
         super().__init__(parent)
+        self.setObjectName("kpi")
+        self.pulsable = pulsable
+        if pulsable:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip(ayuda)
         self.titulo = QLabel(titulo)
         self.titulo.setObjectName("kpiTitulo")
         self.valor = QLabel(valor)
@@ -41,6 +50,16 @@ class TarjetaKPI(Tarjeta):
 
     def set_valor(self, valor: str) -> None:
         self.valor.setText(valor)
+
+    def set_activa(self, activa: bool) -> None:
+        self.setProperty("activa", activa)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def mouseReleaseEvent(self, evento):
+        if self.pulsable and evento.button() == Qt.MouseButton.LeftButton:
+            self.pulsada.emit()
+        super().mouseReleaseEvent(evento)
 
 
 def titulo_seccion(texto: str, subtitulo: str = "") -> QWidget:
@@ -100,6 +119,8 @@ class ModeloTabla(QAbstractTableModel):
                 return f"{valor:g}"
             return "" if valor is None else str(valor)
         if role == ROL_ORDEN:
+            if col == "Semáforo":  # ordenar por gravedad, no alfabéticamente
+                return {"Verde": 0, "Amarillo": 1, "Rojo": 2}.get(valor, -1)
             return valor.item() if isinstance(valor, np.generic) else valor
         if self._idx_semaforo is not None and col in ("Semáforo", "Prob. Deserción"):
             estado = self._valores[index.row(), self._idx_semaforo]
@@ -181,4 +202,12 @@ def porcentaje(valor) -> str:
 
 
 def semaforo_texto(valor) -> str:
-    return f"{ICONO_ESTADO.get(valor, '')} {valor}"
+    return f"{ICONO_ESTADO.get(valor, '')} {NOMBRE_ESTADO.get(valor, valor)}"
+
+
+def mensaje_vacio(texto: str) -> QLabel:
+    lbl = QLabel(texto)
+    lbl.setObjectName("aviso")
+    lbl.setWordWrap(True)
+    lbl.setTextFormat(Qt.TextFormat.RichText)
+    return lbl

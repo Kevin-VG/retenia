@@ -1,20 +1,25 @@
 """Historial de evaluaciones guardadas en este equipo."""
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMessageBox, QPushButton, QTableView, QVBoxLayout, QWidget,
 )
 
-from app.core.variables import ALL_FEATURE_COLS, CARRERAS, COL_CARRERA
+from app.core.variables import ALL_FEATURE_COLS, CARRERAS, COL_CARRERA, ETIQUETAS
+from app.services.plantilla import valor_plantilla
+from app.services.reporte import fecha_legible
 from app.ui.dialogo_ficha import DialogoFicha
-from app.ui.widgets import FiltroTabla, ModeloTabla, porcentaje, semaforo_texto, titulo_seccion
+from app.ui.widgets import NOMBRE_ESTADO, FiltroTabla, ModeloTabla, porcentaje, semaforo_texto, titulo_seccion
 
 COLUMNAS = ["id", "Fecha", "ID estudiante", "Nombre", "Carrera", "Origen", "Prob. Deserción",
             "Semáforo", "Notas"]
+ORIGEN = {"individual": "Individual", "lote": "Archivo"}
+PERIODOS = (("Cualquier fecha", None), ("Hoy", 0), ("Últimos 7 días", 7), ("Últimos 30 días", 30),
+            ("Últimos 12 meses", 365))
 
 
 class VistaHistorial(QWidget):
@@ -28,7 +33,8 @@ class VistaHistorial(QWidget):
         raiz.setSpacing(12)
         raiz.addWidget(titulo_seccion(
             "Historial",
-            "Evaluaciones guardadas en este equipo. Los datos no salen de tu computadora.",
+            "Evaluaciones guardadas en este equipo. Doble clic en una fila para ver la ficha, editar las "
+            "notas o exportar el PDF.",
         ))
 
         filtros = QHBoxLayout()
@@ -40,9 +46,14 @@ class VistaHistorial(QWidget):
                              ("Riesgo moderado", "Amarillo"), ("Riesgo bajo", "Verde")):
             self.f_semaforo.addItem(texto, valor)
         self.f_origen = QComboBox()
-        for texto, valor in (("Todos los orígenes", None), ("Individual", "individual"), ("Lote", "lote")):
+        for texto, valor in (("Individual y archivo", None), ("Solo individual", "individual"),
+                             ("Solo desde archivo", "lote")):
             self.f_origen.addItem(texto, valor)
+        self.f_periodo = QComboBox()
+        for texto, dias in PERIODOS:
+            self.f_periodo.addItem(texto, dias)
         filtros.addWidget(self.buscar, 3)
+        filtros.addWidget(self.f_periodo, 1)
         filtros.addWidget(self.f_semaforo, 1)
         filtros.addWidget(self.f_origen, 1)
         raiz.addLayout(filtros)
@@ -51,13 +62,12 @@ class VistaHistorial(QWidget):
         self._temporizador = QTimer(self, singleShot=True, interval=250)
         self._temporizador.timeout.connect(self.refrescar)
         self.buscar.textChanged.connect(self._temporizador.start)
-        self.f_semaforo.currentIndexChanged.connect(self.refrescar)
-        self.f_origen.currentIndexChanged.connect(self.refrescar)
+        for combo in (self.f_semaforo, self.f_origen, self.f_periodo):
+            combo.currentIndexChanged.connect(self.refrescar)
 
         self.modelo = ModeloTabla(
-            encabezados={"Prob. Deserción": "Probabilidad"},
-            formatos={"Prob. Deserción": porcentaje, "Semáforo": semaforo_texto,
-                      "Fecha": lambda v: str(v).replace("T", " ")},
+            encabezados={"Prob. Deserción": "Riesgo", "Semáforo": "Nivel de riesgo", "Origen": "Tipo"},
+            formatos={"Prob. Deserción": porcentaje, "Semáforo": semaforo_texto, "Fecha": fecha_legible},
         )
         self.proxy = FiltroTabla([])
         self.proxy.setSourceModel(self.modelo)
@@ -77,14 +87,13 @@ class VistaHistorial(QWidget):
         ver = QPushButton("Ver ficha / PDF")
         ver.setObjectName("primario")
         ver.clicked.connect(self.ver_ficha)
-        eliminar = QPushButton("Eliminar seleccionados")
+        eliminar = QPushButton("Eliminar seleccionadas")
         eliminar.setObjectName("peligro")
+        eliminar.setToolTip("También con la tecla Supr")
         eliminar.clicked.connect(self.eliminar)
-        exportar = QPushButton("Exportar CSV…")
+        exportar = QPushButton("Exportar a Excel…")
+        exportar.setToolTip("Exporta las evaluaciones que se muestran con los filtros actuales")
         exportar.clicked.connect(self.exportar)
-        carpeta = QPushButton("Abrir carpeta de datos")
-        carpeta.clicked.connect(lambda: QDesktopServices.openUrl(
-            QUrl.fromLocalFile(str(self.historial.ruta.parent))))
         self.lbl_total = QLabel()
         self.lbl_total.setObjectName("leyenda")
         acciones.addWidget(ver)
@@ -92,15 +101,20 @@ class VistaHistorial(QWidget):
         acciones.addSpacing(12)
         acciones.addWidget(self.lbl_total, 1)
         acciones.addWidget(exportar)
-        acciones.addWidget(carpeta)
         raiz.addLayout(acciones)
 
         self.registros = []
         self.refrescar()
 
+    def _desde(self) -> str | None:
+        dias = self.f_periodo.currentData()
+        if dias is None:
+            return None
+        return (date.today() - timedelta(days=dias)).isoformat()
+
     def refrescar(self) -> None:
         self.registros = self.historial.buscar(
-            self.buscar.text(), self.f_semaforo.currentData(), self.f_origen.currentData()
+            self.buscar.text(), self.f_semaforo.currentData(), self.f_origen.currentData(), self._desde()
         )
         filas = [
             {
@@ -109,7 +123,7 @@ class VistaHistorial(QWidget):
                 "ID estudiante": r.estudiante_id,
                 "Nombre": r.nombre,
                 "Carrera": CARRERAS.get(int(r.perfil.get(COL_CARRERA, 0)), ""),
-                "Origen": r.origen.capitalize(),
+                "Origen": ORIGEN.get(r.origen, r.origen),
                 "Prob. Deserción": r.probabilidad,
                 "Semáforo": r.semaforo,
                 "Notas": r.notas,
@@ -120,7 +134,11 @@ class VistaHistorial(QWidget):
         self.tabla.hideColumn(0)
         self.tabla.resizeColumnsToContents()
         total = self.historial.contar()
-        self.lbl_total.setText(f"Mostrando {len(filas):,} de {total:,} evaluaciones")
+        if total == 0:
+            self.lbl_total.setText("Aún no hay evaluaciones guardadas. Usa «Guardar en historial» al "
+                                   "evaluar un estudiante o un archivo.")
+        else:
+            self.lbl_total.setText(f"Mostrando {len(filas):,} de {total:,} evaluaciones")
 
     def _ids_seleccionados(self) -> list[int]:
         return [
@@ -160,25 +178,32 @@ class VistaHistorial(QWidget):
             self.historial.eliminar(ids)
             self.refrescar()
 
+    def tabla_exportable(self) -> pd.DataFrame:
+        return pd.DataFrame([
+            {"Fecha": fecha_legible(r.fecha), "ID estudiante": r.estudiante_id, "Nombre": r.nombre,
+             "Tipo": ORIGEN.get(r.origen, r.origen), "Riesgo (%)": round(r.probabilidad * 100, 1),
+             "Nivel de riesgo": NOMBRE_ESTADO.get(r.semaforo, r.semaforo), "Notas": r.notas,
+             **{ETIQUETAS[c]: valor_plantilla(c, r.perfil.get(c)) for c in ALL_FEATURE_COLS}}
+            for r in self.registros
+        ])
+
     def exportar(self) -> None:
         if not self.registros:
             QMessageBox.information(self, "Sin datos", "No hay evaluaciones para exportar.")
             return
-        sugerido = str(Path.home() / "Documents" / "historial_retenia.csv")
-        ruta, _ = QFileDialog.getSaveFileName(self, "Exportar historial", sugerido, "CSV (*.csv)")
+        sugerido = str(Path.home() / "Documents" / "historial_retenia.xlsx")
+        ruta, _ = QFileDialog.getSaveFileName(self, "Exportar historial", sugerido,
+                                              "Excel (*.xlsx);;CSV (*.csv)")
         if not ruta:
             return
-        filas = [
-            {"id_registro": r.id, "fecha": r.fecha, "id_estudiante": r.estudiante_id, "nombre": r.nombre,
-             "origen": r.origen, "probabilidad": round(r.probabilidad, 4), "semaforo": r.semaforo,
-             "umbral": r.umbral, "notas": r.notas,
-             **{c: r.perfil.get(c) for c in ALL_FEATURE_COLS}}
-            for r in self.registros
-        ]
+        df = self.tabla_exportable()
         try:
-            pd.DataFrame(filas).to_csv(ruta, index=False, encoding="utf-8-sig")
+            if ruta.lower().endswith(".csv"):
+                df.to_csv(ruta, index=False, encoding="utf-8-sig")
+            else:
+                df.to_excel(ruta, index=False, sheet_name="Historial")
         except OSError as e:
-            QMessageBox.critical(self, "No se pudo exportar", str(e))
+            QMessageBox.critical(self, "No se pudo exportar", f"¿Está abierto en otro programa?\n{e}")
             return
         QMessageBox.information(self, "Exportado", f"Historial guardado en:\n{ruta}")
 

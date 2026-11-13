@@ -1,4 +1,4 @@
-/* RetenIA — paleta coherente con la app web (azul marino + azul primario) */
+/* RetenIA — azul marino + azul primario */
 
 QWidget {
     font-family: "Segoe UI", "Inter", sans-serif;
@@ -15,10 +15,16 @@ QMainWindow, QStackedWidget > QWidget, QScrollArea, QScrollArea > QWidget > QWid
 #barraLateral QLabel { color: #ffffff; background: transparent; }
 #marca { font-size: 20pt; font-weight: 700; }
 #lema { color: #94a3b8; font-size: 9pt; }
-#chipModelo {
+#barraLateral QLabel#chipPrivacidad {
     background: #172554; border: 1px solid #1e3a8a; border-radius: 8px;
-    padding: 8px 10px; color: #bfdbfe; font-size: 9pt;
+    padding: 8px 10px; color: #bbf7d0; font-size: 8.5pt;
 }
+QPushButton#enlaceLateral {
+    background: transparent; border: none; color: #cbd5e1; text-align: left;
+    padding: 9px 12px; font-weight: 500; border-radius: 8px;
+}
+QPushButton#enlaceLateral:hover { background: #172554; color: #ffffff; }
+QPushButton#enlaceLateral:checked { background: #2563eb; color: #ffffff; font-weight: 600; }
 #menu { background: transparent; border: none; outline: none; }
 #menu::item {
     color: #cbd5e1; padding: 10px 12px; border-radius: 8px; margin: 2px 0;
@@ -38,14 +44,21 @@ QMainWindow, QStackedWidget > QWidget, QScrollArea, QScrollArea > QWidget > QWid
 #aviso { color: #475569; font-size: 10.5pt; padding: 10px; }
 
 /* ---------- Tarjetas ---------- */
-#tarjeta, #tarjetaResultado, #zonaSoltar {
+#tarjeta, #tarjetaResultado, #zonaSoltar, #kpi {
     background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
 }
+#kpi:hover { border-color: #93c5fd; }
+#kpi[activa="true"] { border: 2px solid #2563eb; background: #f8fbff; }
 #zonaSoltar { border: 2px dashed #93c5fd; background: #f8fbff; }
 #kpiTitulo { color: #52514e; font-size: 9pt; }
 #kpiValor { font-size: 20pt; font-weight: 700; }
 #probGrande { font-size: 34pt; font-weight: 800; }
 #estado { font-size: 15pt; font-weight: 700; }
+
+#avisoCambios {
+    background: #fff6dd; border: 1px solid #f3d27a; border-radius: 8px;
+    color: #7c5800; padding: 8px 10px;
+}
 
 #errores {
     background: #fdecec; border: 1px solid #f5b5b5; border-radius: 8px;
@@ -59,6 +72,7 @@ QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {
     selection-background-color: #2563eb;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus { border: 1px solid #2563eb; }
+QComboBox[invalido="true"], QSpinBox[invalido="true"] { border: 1px solid #dc2626; background: #fff5f5; }
 
 QPushButton {
     background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px;
@@ -72,11 +86,6 @@ QPushButton#primario:hover { background: #1d4ed8; }
 QPushButton#primario:disabled { background: #93c5fd; border-color: #93c5fd; color: #ffffff; }
 QPushButton#peligro { color: #b91c1c; border-color: #fca5a5; }
 QPushButton#peligro:hover { background: #fdecec; }
-QPushButton#chip {
-    padding: 4px 10px; border-radius: 12px; font-weight: 500; font-size: 9pt;
-    background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;
-}
-QPushButton#chip:hover { background: #dbeafe; }
 
 QProgressBar { background: #e2e8f0; border: none; border-radius: 6px; }
 
@@ -91,7 +100,6 @@ QHeaderView::section {
     border: none; border-bottom: 1px solid #e2e8f0; padding: 6px 8px;
 }
 
-QStatusBar { background: #ffffff; color: #52514e; border-top: 1px solid #e2e8f0; }
 QToolTip { background: #0c1938; color: #ffffff; border: none; padding: 6px; }
 QTextBrowser { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; }
 

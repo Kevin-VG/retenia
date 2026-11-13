@@ -49,7 +49,7 @@ def main() -> int:
         )
         splash = QSplashScreen(imagen)
         splash.show()
-        splash.showMessage("Cargando modelo…", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
+        splash.showMessage("Iniciando…", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
         app.processEvents()
 
     # Importes pesados (pandas / scikit-learn) después de mostrar el splash

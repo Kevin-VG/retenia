@@ -84,7 +84,7 @@ class ServicioModelo:
         self.umbral = float(self.config["umbral_operativo"])
         self.medianas = {c: float(v) for c, v in self.config["medianas"].items()}
         self.rangos = {c: tuple(v) for c, v in self.config["rangos"].items()}
-        self.perfiles = self.config["perfiles_ejemplo"]
+        self.perfiles = self.config["perfiles_ejemplo"]  # solo para pruebas automáticas
         self.rangos_entrenamiento = {
             c: tuple(v) for c, v in self.config.get("rangos_entrenamiento", {}).items()
         }
@@ -132,14 +132,14 @@ class ServicioModelo:
 
     # ----- Evaluación por lote -----
     def validar_lote(self, df: pd.DataFrame) -> Validacion:
-        return validar_lote(df, self.categorias_conocidas, self.rangos_entrenamiento)
+        return validar_lote(df, self.categorias_conocidas, self.rangos_entrenamiento, self.medianas)
 
     def evaluar_lote(self, df: pd.DataFrame, umbral: float | None = None) -> ResultadoLote:
         """Valida fila por fila y evalúa las filas sin errores. Lanza ErrorArchivo si el archivo
         no se puede usar en absoluto (p. ej. faltan columnas)."""
         umbral = self.umbral if umbral is None else umbral
-        df = df.reset_index(drop=True)
         v = self.validar_lote(df)
+        df = v.datos
         validas = ~v.con_error
         X = v.X[validas]
 

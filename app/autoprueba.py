@@ -2,8 +2,8 @@
 
     RetenIA.exe --autoprueba resultado.json
 
-Carga y verifica el modelo, evalúa los perfiles de ejemplo, construye la ventana,
-genera una ficha PDF y escribe un JSON con el resultado. Código de salida 0 = OK.
+Carga y verifica el modelo, evalúa perfiles de referencia, construye la ventana, rellena la
+plantilla Excel y la carga, genera una ficha PDF y escribe un JSON con el resultado. Código de salida 0 = OK.
 Se usa en CI para comprobar que el .exe congelado funciona igual que el código fuente.
 """
 import json
@@ -17,11 +17,13 @@ ESPERADO = {"riesgo": "Rojo", "vulnerable": "Amarillo", "destacado": "Verde"}
 def ejecutar(ruta_salida: Path) -> int:
     informe = {"ok": False}
     try:
+        import openpyxl
         from PySide6.QtWidgets import QApplication
 
         from app import __version__, rutas
         from app.services.historial import Historial
         from app.services.modelo import ServicioModelo
+        from app.services.plantilla import crear_plantilla_excel, fila_plantilla
         from app.services.reporte import exportar_pdf, ficha_html
         from app.ui.ventana import VentanaPrincipal
 
@@ -36,26 +38,31 @@ def ejecutar(ruta_salida: Path) -> int:
         with tempfile.TemporaryDirectory() as tmp:
             historial = Historial(Path(tmp) / "historial.db")
             ventana = VentanaPrincipal(servicio, historial)
-            ventana.vistas["lote"].cargar(rutas.PLANTILLA_LOTE)
-            informe["filas_lote"] = ventana.vistas["lote"].modelo.rowCount()
+
+            # Plantilla Excel generada por la app, rellenada como lo haría un usuario
+            xlsx = crear_plantilla_excel(Path(tmp) / "plantilla.xlsx", servicio)
+            libro = openpyxl.load_workbook(xlsx)
+            for clave, perfil in servicio.perfiles.items():
+                libro["Estudiantes"].append(fila_plantilla(perfil, f"PRUEBA-{clave}"))
+            libro.save(xlsx)
+            ventana.vistas["lote"].cargar(xlsx)
+            lote = ventana.vistas["lote"].lote
+            informe["plantilla_excel"] = {
+                "filas": len(lote.resultado), "problemas": len(lote.problemas),
+                "semaforos": dict(zip(lote.resultado["id_estudiante"], lote.resultado["Semáforo"])),
+            }
+
             pdf = exportar_pdf(
-                ficha_html(resultados["riesgo"], servicio.medianas, estudiante_id="AUTOPRUEBA",
-                           modelo=servicio.nombre_modelo),
+                ficha_html(resultados["riesgo"], servicio.medianas, estudiante_id="AUTOPRUEBA"),
                 Path(tmp) / "ficha.pdf",
             )
             informe["pdf_bytes"] = pdf.stat().st_size
-
-            from app.core.scoring import leer_excel
-            from app.services.plantilla import crear_plantilla_excel
-            xlsx = crear_plantilla_excel(Path(tmp) / "plantilla.xlsx", servicio)
-            lote_xlsx = servicio.evaluar_lote(leer_excel(xlsx))
-            informe["plantilla_excel"] = {"filas": len(lote_xlsx.resultado),
-                                          "problemas": len(lote_xlsx.problemas)}
             ventana.close()
 
+        esperado_lote = {f"PRUEBA-{c}": s for c, s in ESPERADO.items()}
         informe["ok"] = (
-            informe["semaforos"] == ESPERADO and informe["filas_lote"] == 4 and informe["pdf_bytes"] > 5000
-            and informe["plantilla_excel"] == {"filas": 4, "problemas": 0}
+            informe["semaforos"] == ESPERADO and informe["pdf_bytes"] > 5000
+            and informe["plantilla_excel"] == {"filas": 3, "problemas": 0, "semaforos": esperado_lote}
         )
     except Exception:  # noqa: BLE001 - el informe debe recoger cualquier fallo
         informe["error"] = traceback.format_exc()

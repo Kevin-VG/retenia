@@ -1,5 +1,4 @@
-"""Evaluación por lote: plantilla → CSV o Excel → revisión fila por fila → resultados por riesgo."""
-import shutil
+"""Evaluación desde archivo: plantilla Excel → revisión fila por fila → resultados por nivel de riesgo."""
 from html import escape
 from pathlib import Path
 
@@ -7,25 +6,25 @@ import pandas as pd
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QMenu, QMessageBox, QPushButton, QTableView, QTabWidget, QVBoxLayout, QWidget,
+    QLineEdit, QMessageBox, QPushButton, QTableView, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from app import rutas
 from app.core import scoring
 from app.core.validacion import ADVERTENCIA, ERROR, ErrorArchivo
-from app.core.variables import (
-    ALL_FEATURE_COLS, CARRERAS, COL_CARRERA, COL_ID, ENTRADAS_FORMULARIO, ETIQUETAS, describir_valor,
-)
-from app.services.plantilla import crear_plantilla_excel
+from app.core.variables import ALL_FEATURE_COLS, COL_CARRERA, COL_ID, COLUMNAS_PLANTILLA, describir_valor
+from app.services.plantilla import crear_plantilla_excel, encabezado, valor_plantilla
+from app.services.reporte import fecha_legible
 from app.ui.dialogo_ficha import DialogoFicha
 from app.ui.widgets import (
-    COLOR_ESTADO, COLOR_NIVEL, FiltroTabla, ModeloTabla, Tarjeta, TarjetaKPI, porcentaje,
+    COLOR_ESTADO, COLOR_NIVEL, NOMBRE_ESTADO, FiltroTabla, ModeloTabla, Tarjeta, TarjetaKPI, porcentaje,
     semaforo_texto, titulo_seccion,
 )
 
-EXTENSIONES = (".csv", ".xlsx")
-COLUMNAS_VISTA = [COL_ID, "Prob. Deserción", "Semáforo", "Avisos", "Fila", *ENTRADAS_FORMULARIO]
+EXTENSIONES = (".xlsx", ".csv")
+COLUMNAS_VISTA = [COL_ID, "Prob. Deserción", "Semáforo", COL_CARRERA, "Fila", "Avisos"]
 DOCUMENTOS = Path.home() / "Documents"
+FILTROS_NIVEL = (("Todos los niveles", None), ("Riesgo alto", "Rojo"), ("Riesgo moderado", "Amarillo"),
+                 ("Riesgo bajo", "Verde"))
 
 
 def _tabla(modelo, proxy) -> QTableView:
@@ -38,6 +37,7 @@ def _tabla(modelo, proxy) -> QTableView:
     tabla.setAlternatingRowColors(True)
     tabla.verticalHeader().hide()
     tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+    tabla.horizontalHeader().setStretchLastSection(True)
     return tabla
 
 
@@ -57,46 +57,50 @@ class VistaLote(QWidget):
         raiz.setContentsMargins(28, 24, 28, 24)
         raiz.setSpacing(12)
         raiz.addWidget(titulo_seccion(
-            "Carga por lote",
-            f"Evalúa muchos estudiantes a la vez desde un CSV o Excel con las {len(ALL_FEATURE_COLS)} "
-            "variables del dataset. Cada fila se revisa antes de evaluarla.",
+            "Evaluar desde archivo",
+            "Evalúa a varios estudiantes a la vez con la plantilla de Excel. Cada fila se revisa antes "
+            "de evaluarla.",
         ))
 
         barra = QHBoxLayout()
-        abrir = QPushButton("Abrir CSV o Excel…")
+        plantilla = QPushButton("Descargar plantilla Excel…")
+        plantilla.setToolTip("Plantilla con instrucciones, listas desplegables y la explicación de "
+                             "cada columna")
+        plantilla.clicked.connect(self.guardar_plantilla_excel)
+        abrir = QPushButton("Abrir archivo…")
         abrir.setObjectName("primario")
+        abrir.setToolTip("Excel (.xlsx) o CSV con los mismos títulos de columna que la plantilla")
         abrir.clicked.connect(self.abrir_dialogo)
-        plantilla = QPushButton("Descargar plantilla  ▾")
-        menu = QMenu(plantilla)
-        menu.addAction("Plantilla Excel (recomendada: instrucciones, diccionario y listas)…",
-                       self.guardar_plantilla_excel)
-        menu.addAction("Plantilla CSV…", self.guardar_plantilla_csv)
-        plantilla.setMenu(menu)
-        self.lbl_archivo = QLabel("Ningún archivo cargado.")
+        self.lbl_archivo = QLabel()
         self.lbl_archivo.setObjectName("leyenda")
-        barra.addWidget(abrir)
         barra.addWidget(plantilla)
+        barra.addWidget(abrir)
         barra.addSpacing(12)
         barra.addWidget(self.lbl_archivo, 1)
         raiz.addLayout(barra)
 
-        # ---------- estado inicial: zona para soltar ----------
+        # ---------- estado inicial: pasos + zona para soltar ----------
         self.zona = Tarjeta()
         self.zona.setObjectName("zonaSoltar")
         aviso = QLabel(
-            "<b>Suelta aquí un archivo .csv o .xlsx</b><br><br>"
-            "¿Primera vez? Usa <b>Descargar plantilla → Plantilla Excel</b>: trae instrucciones, "
-            "el significado de cada columna y listas desplegables para evitar errores.<br><br>"
-            "Al cargar, cada fila se revisa: las filas con <span style='color:#b91c1c'><b>errores</b></span> "
-            "no se evalúan y las que tienen <span style='color:#a16207'><b>advertencias</b></span> se evalúan "
-            "con aviso. Todo queda listado en la pestaña «Problemas»."
+            "<p style='font-size:12pt'><b>Arrastra aquí tu archivo Excel (.xlsx) o CSV</b></p>"
+            "<table cellspacing='8' align='center'>"
+            "<tr><td><b>1.</b></td><td align='left'>Pulsa <b>Descargar plantilla Excel</b> y completa "
+            "una fila por estudiante. Al seleccionar una celda, Excel te indica qué valores son válidos.</td></tr>"
+            "<tr><td><b>2.</b></td><td align='left'>Arrastra el archivo a esta zona o pulsa "
+            "<b>Abrir archivo…</b></td></tr>"
+            "<tr><td><b>3.</b></td><td align='left'>Revisa los resultados, abre la ficha de cada "
+            "estudiante y guarda el grupo en el historial.</td></tr></table>"
+            f"<p>Las filas con <span style='color:{COLOR_NIVEL[ERROR]}'><b>errores</b></span> no se "
+            f"evalúan; las que tienen <span style='color:{COLOR_NIVEL[ADVERTENCIA]}'><b>advertencias</b>"
+            "</span> se evalúan con aviso. Todo se detalla en la pestaña «Problemas».</p>"
         )
         aviso.setTextFormat(Qt.TextFormat.RichText)
         aviso.setAlignment(Qt.AlignmentFlag.AlignCenter)
         aviso.setWordWrap(True)
         aviso.setObjectName("aviso")
         self.zona.cuerpo.addWidget(aviso)
-        self.zona.setMinimumHeight(220)
+        self.zona.setMinimumHeight(260)
         raiz.addWidget(self.zona)
 
         # ---------- contenido tras cargar ----------
@@ -106,13 +110,22 @@ class VistaLote(QWidget):
         cont.setSpacing(10)
 
         kpis = QHBoxLayout()
-        self.k_total = TarjetaKPI("Evaluados")
-        self.k_rojo = TarjetaKPI("Riesgo alto", color=COLOR_ESTADO["Rojo"])
-        self.k_amarillo = TarjetaKPI("Riesgo moderado", color=COLOR_ESTADO["Amarillo"])
-        self.k_verde = TarjetaKPI("Riesgo bajo", color=COLOR_ESTADO["Verde"])
-        self.k_error = TarjetaKPI("Filas con error (no evaluadas)", color=COLOR_NIVEL["Error"])
-        for k in (self.k_total, self.k_rojo, self.k_amarillo, self.k_verde, self.k_error):
+        self.k_total = TarjetaKPI("Evaluados", pulsable=True, ayuda="Mostrar todos los evaluados")
+        self.k_rojo = TarjetaKPI("Riesgo alto", color=COLOR_ESTADO["Rojo"], pulsable=True,
+                                 ayuda="Mostrar solo riesgo alto")
+        self.k_amarillo = TarjetaKPI("Riesgo moderado", color=COLOR_ESTADO["Amarillo"], pulsable=True,
+                                     ayuda="Mostrar solo riesgo moderado")
+        self.k_verde = TarjetaKPI("Riesgo bajo", color=COLOR_ESTADO["Verde"], pulsable=True,
+                                  ayuda="Mostrar solo riesgo bajo")
+        self.k_error = TarjetaKPI("Filas no evaluadas (con error)", color=COLOR_NIVEL[ERROR], pulsable=True,
+                                  ayuda="Ver las filas con errores")
+        self._kpi_nivel = {None: self.k_total, "Rojo": self.k_rojo, "Amarillo": self.k_amarillo,
+                           "Verde": self.k_verde}
+        for nivel, k in self._kpi_nivel.items():
+            k.pulsada.connect(lambda n=nivel: self._filtrar_nivel(n))
             kpis.addWidget(k)
+        self.k_error.pulsada.connect(self._ver_errores)
+        kpis.addWidget(self.k_error)
         cont.addLayout(kpis)
 
         self.lbl_resumen = QLabel()
@@ -124,6 +137,7 @@ class VistaLote(QWidget):
         self.pestanas = QTabWidget()
         self.pestanas.addTab(self._crear_pestana_resultados(), "Resultados")
         self.pestanas.addTab(self._crear_pestana_problemas(), "Problemas")
+        self.pestanas.currentChanged.connect(lambda i: self._filtro_cambiado() if i == 0 else None)
         cont.addWidget(self.pestanas, 1)
 
         self.contenido.hide()
@@ -141,45 +155,49 @@ class VistaLote(QWidget):
         self.buscar.setPlaceholderText("Buscar por ID…")
         self.buscar.setClearButtonEnabled(True)
         self.filtro_semaforo = QComboBox()
-        for texto, valor in (("Todos los niveles", None), ("Riesgo alto", "Rojo"),
-                             ("Riesgo moderado", "Amarillo"), ("Riesgo bajo", "Verde")):
+        for texto, valor in FILTROS_NIVEL:
             self.filtro_semaforo.addItem(texto, valor)
+        ayuda = QLabel("Doble clic en una fila para ver la ficha completa.")
+        ayuda.setObjectName("leyenda")
         filtros.addWidget(self.buscar, 2)
         filtros.addWidget(self.filtro_semaforo, 1)
-        filtros.addStretch(2)
+        filtros.addSpacing(8)
+        filtros.addWidget(ayuda, 2)
         lay.addLayout(filtros)
 
         formatos = {
             "Prob. Deserción": porcentaje,
             "Semáforo": semaforo_texto,
             "Avisos": lambda v: f"⚠ {v}" if v else "",
-            **{c: (lambda v, c=c: describir_valor(c, v)) for c in ENTRADAS_FORMULARIO},
+            COL_CARRERA: lambda v: describir_valor(COL_CARRERA, v),
         }
-        self.modelo = ModeloTabla(encabezados={COL_ID: "ID", "Prob. Deserción": "Probabilidad",
-                                               "Fila": "Fila del archivo", **ETIQUETAS}, formatos=formatos)
+        self.modelo = ModeloTabla(
+            encabezados={COL_ID: "ID estudiante", "Prob. Deserción": "Riesgo", "Semáforo": "Nivel de riesgo",
+                         COL_CARRERA: "Carrera", "Fila": "Fila del archivo", "Avisos": "Avisos"},
+            formatos=formatos,
+        )
         self.proxy = FiltroTabla([COL_ID])
         self.buscar.textChanged.connect(self.proxy.set_texto)
-        self.filtro_semaforo.currentIndexChanged.connect(
-            lambda: self.proxy.set_semaforo(self.filtro_semaforo.currentData()))
+        self.filtro_semaforo.currentIndexChanged.connect(self._filtro_cambiado)
         self.tabla = _tabla(self.modelo, self.proxy)
         self.tabla.doubleClicked.connect(self.ver_ficha)
         lay.addWidget(self.tabla, 1)
 
         acciones = QHBoxLayout()
-        ficha = QPushButton("Ver ficha del seleccionado")
+        ficha = QPushButton("Ver ficha")
         ficha.clicked.connect(self.ver_ficha)
+        exp_xlsx = QPushButton("Exportar Excel…")
+        exp_xlsx.setToolTip("Resultados y, si los hay, los problemas detectados")
+        exp_xlsx.clicked.connect(lambda: self.exportar("xlsx"))
         exp_csv = QPushButton("Exportar CSV…")
         exp_csv.clicked.connect(lambda: self.exportar("csv"))
-        exp_xlsx = QPushButton("Exportar Excel…")
-        exp_xlsx.setToolTip("Incluye una hoja con los problemas detectados")
-        exp_xlsx.clicked.connect(lambda: self.exportar("xlsx"))
-        self.btn_historial = QPushButton("Guardar lote en historial")
+        self.btn_historial = QPushButton("Guardar en historial")
         self.btn_historial.setObjectName("primario")
         self.btn_historial.clicked.connect(self.guardar_historial)
         acciones.addWidget(ficha)
         acciones.addStretch()
-        acciones.addWidget(exp_csv)
         acciones.addWidget(exp_xlsx)
+        acciones.addWidget(exp_csv)
         acciones.addWidget(self.btn_historial)
         lay.addLayout(acciones)
         return w
@@ -202,26 +220,44 @@ class VistaLote(QWidget):
         filtros.addStretch(2)
         lay.addLayout(filtros)
 
-        self.modelo_problemas = ModeloTabla(encabezados={COL_ID: "ID", "Fila": "Fila del archivo"})
+        self.modelo_problemas = ModeloTabla(encabezados={COL_ID: "ID estudiante", "Fila": "Fila del archivo"})
         self.proxy_problemas = FiltroTabla([COL_ID, "Columna", "Problema", "Valor"], columna_estado="Nivel")
         self.buscar_problema.textChanged.connect(self.proxy_problemas.set_texto)
         self.filtro_nivel.currentIndexChanged.connect(
             lambda: self.proxy_problemas.set_semaforo(self.filtro_nivel.currentData()))
         self.tabla_problemas = _tabla(self.modelo_problemas, self.proxy_problemas)
-        self.tabla_problemas.horizontalHeader().setStretchLastSection(True)
         lay.addWidget(self.tabla_problemas, 1)
 
         acciones = QHBoxLayout()
-        ayuda = QLabel("Corrige las filas indicadas en tu archivo y vuelve a cargarlo. "
+        ayuda = QLabel("Corrige las filas indicadas en tu archivo y vuelve a abrirlo. "
                        "«Fila del archivo» es el número de fila en Excel (la fila 1 son los títulos).")
         ayuda.setObjectName("leyenda")
         ayuda.setWordWrap(True)
-        exportar = QPushButton("Exportar problemas (CSV)…")
+        exportar = QPushButton("Exportar problemas…")
         exportar.clicked.connect(self.exportar_problemas)
         acciones.addWidget(ayuda, 1)
         acciones.addWidget(exportar)
         lay.addLayout(acciones)
         return w
+
+    # ------------------------------------------------------------------ filtros
+    def _filtro_cambiado(self) -> None:
+        nivel = self.filtro_semaforo.currentData()
+        self.proxy.set_semaforo(nivel)
+        for clave, k in self._kpi_nivel.items():
+            k.set_activa(clave == nivel)
+        self.k_error.set_activa(False)
+
+    def _filtrar_nivel(self, nivel) -> None:
+        self.pestanas.setCurrentIndex(0)
+        self.filtro_semaforo.setCurrentIndex([v for _, v in FILTROS_NIVEL].index(nivel))
+
+    def _ver_errores(self) -> None:
+        self.pestanas.setCurrentIndex(1)
+        self.filtro_nivel.setCurrentIndex(1)
+        for k in self._kpi_nivel.values():
+            k.set_activa(False)
+        self.k_error.set_activa(True)
 
     # ------------------------------------------------------------------ arrastrar y soltar
     def dragEnterEvent(self, evento):
@@ -236,7 +272,7 @@ class VistaLote(QWidget):
     def abrir_dialogo(self) -> None:
         ruta, _ = QFileDialog.getOpenFileName(
             self, "Abrir archivo de estudiantes", str(DOCUMENTOS),
-            "Datos de estudiantes (*.csv *.xlsx);;CSV (*.csv);;Excel (*.xlsx)",
+            "Archivos de estudiantes (*.xlsx *.csv);;Excel (*.xlsx);;CSV (*.csv)",
         )
         if ruta:
             self.cargar(Path(ruta))
@@ -255,7 +291,8 @@ class VistaLote(QWidget):
             return
         except (ValueError, OSError) as e:
             QApplication.restoreOverrideCursor()
-            QMessageBox.warning(self, "No se pudo leer el archivo", str(e))
+            QMessageBox.warning(self, "No se pudo leer el archivo",
+                                f"{e}\n\nSi el archivo está abierto en Excel, ciérralo e inténtalo de nuevo.")
             return
         QApplication.restoreOverrideCursor()
 
@@ -269,8 +306,6 @@ class VistaLote(QWidget):
         problemas = self.lote.problemas
         conteo = res["Semáforo"].value_counts()
         n_err_filas = self.lote.descartadas
-        n_adv = int((problemas["Nivel"] == ADVERTENCIA).sum())
-        n_err = int((problemas["Nivel"] == ERROR).sum())
         filas_adv = int((res["Avisos"] != "").sum())
 
         self.k_total.set_valor(f"{len(res):,}")
@@ -281,44 +316,57 @@ class VistaLote(QWidget):
 
         partes = [f"<b>Revisión del archivo:</b> {len(res) + n_err_filas:,} filas leídas"]
         if n_err_filas:
-            partes.append(f"<span style='color:#b91c1c'><b>✗</b> {n_err_filas} fila(s) con {n_err} error(es) — "
-                          "no se evaluaron</span>")
-        if n_adv:
-            partes.append(f"<span style='color:#a16207'>⚠ {filas_adv} fila(s) evaluada(s) con "
-                          f"{n_adv} advertencia(s)</span>")
-        if not n_err_filas and not n_adv:
-            partes.append("<span style='color:#0c8a0c'>✔ sin problemas</span>")
+            partes.append(f"<span style='color:{COLOR_NIVEL[ERROR]}'><b>✗</b> {n_err_filas} fila(s) con "
+                          "errores no se evaluaron</span>")
+        if filas_adv:
+            partes.append(f"<span style='color:{COLOR_NIVEL[ADVERTENCIA]}'>⚠ {filas_adv} fila(s) evaluada(s) "
+                          "con advertencias</span>")
+        if not n_err_filas and problemas.empty:
+            partes.append(f"<span style='color:{COLOR_ESTADO['Verde']}'>✔ sin problemas</span>")
         extra = self.lote.validacion.columnas_extra
         if extra:
-            partes.append(f"columnas ignoradas: {escape(', '.join(map(str, extra)))}")
+            partes.append(f"columnas no reconocidas (se ignoraron): {escape(', '.join(map(str, extra)))}")
         texto = " · ".join(partes)
         m = self.lote.metricas
         if m:
-            texto += (f"<br><b>Resultado real incluido:</b> Accuracy {m['accuracy'] * 100:.1f} % · "
-                      f"Precision {m['precision'] * 100:.1f} % · Recall {m['recall'] * 100:.1f} % · "
-                      f"F1 {m['f1']:.4f} · ROC-AUC {m['roc_auc']:.4f}")
+            texto += (
+                f"<br><b>Comparación con el resultado real</b> ({m['n']:,} estudiantes, "
+                f"{m['abandonaron']:,} abandonaron): RetenIA alertó a <b>{m['detectados']:,} de "
+                f"{m['abandonaron']:,}</b> que abandonaron (sensibilidad {m['recall'] * 100:.0f} %) y "
+                f"<b>{m['precision'] * 100:.0f} %</b> de sus {m['alertas']:,} alertas fueron acertadas "
+                f"(precisión). Exactitud global {m['accuracy'] * 100:.0f} % · F1 {m['f1']:.2f} · "
+                f"AUC {m['roc_auc']:.2f}."
+            )
         self.lbl_resumen.setText(texto)
-        estilo = "error" if n_err_filas else ("advertencia" if n_adv else "ok")
+        self.lbl_resumen.setToolTip(
+            "Sensibilidad: de los estudiantes que abandonaron, cuántos recibieron alerta.\n"
+            "Precisión: de las alertas emitidas, cuántas correspondían a estudiantes que abandonaron.\n"
+            "AUC: capacidad de ordenar a los estudiantes por riesgo (1 = perfecta, 0.5 = al azar)."
+            if m else ""
+        )
+        estilo = "error" if n_err_filas else ("advertencia" if not problemas.empty else "ok")
         self.lbl_resumen.setProperty("estado", estilo)
         self.lbl_resumen.style().unpolish(self.lbl_resumen)
         self.lbl_resumen.style().polish(self.lbl_resumen)
 
         self.modelo.set_df(res[[c for c in COLUMNAS_VISTA if c in res.columns]])
         self.tabla.resizeColumnsToContents()
-        self.tabla.setColumnWidth(3, min(self.tabla.columnWidth(3), 260))  # Avisos
         self.tabla.sortByColumn(1, Qt.SortOrder.DescendingOrder)
+        self.filtro_semaforo.setCurrentIndex(0)
+        self.buscar.clear()
 
         self.modelo_problemas.set_df(problemas)
         self.tabla_problemas.resizeColumnsToContents()
         self.tabla_problemas.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        self.filtro_nivel.setCurrentIndex(0)
         self.pestanas.setTabText(0, f"Resultados ({len(res):,})")
         self.pestanas.setTabText(1, f"Problemas ({len(problemas):,})")
         # Si nada se pudo evaluar, abrir directamente la lista de problemas
         self.pestanas.setCurrentIndex(1 if res.empty else 0)
 
-        self.lbl_archivo.setText(f"{self.archivo.name} · umbral {self.servicio.umbral:.2f}")
+        self.lbl_archivo.setText(f"Archivo: <b>{escape(self.archivo.name)}</b>")
         self.btn_historial.setEnabled(not res.empty)
-        self.btn_historial.setText("Guardar lote en historial")
+        self.btn_historial.setText("Guardar en historial")
         self.zona.hide()
         self.contenido.show()
 
@@ -334,7 +382,7 @@ class VistaLote(QWidget):
         if fila is None:
             QMessageBox.information(self, "Selecciona un estudiante", "Selecciona una fila de la tabla.")
             return
-        datos = self.lote.resultado.iloc[fila]
+        datos = self.lote.resultado.iloc[fila]  # la tabla muestra las filas de `resultado` en su orden
         resultado = self.servicio.explicar(datos[ALL_FEATURE_COLS].to_dict())
         DialogoFicha(self, self.servicio, resultado, estudiante_id=str(datos[COL_ID])).exec()
 
@@ -342,16 +390,29 @@ class VistaLote(QWidget):
         ruta, _ = QFileDialog.getSaveFileName(self, titulo, str(DOCUMENTOS / nombre), filtro)
         return ruta or None
 
+    def tabla_exportable(self) -> pd.DataFrame:
+        """Resultados con títulos y valores legibles (se pueden volver a abrir en RetenIA)."""
+        res = self.lote.resultado
+        df = pd.DataFrame({
+            "ID estudiante": res[COL_ID],
+            "Riesgo (%)": (res["Prob. Deserción"] * 100).round(1),
+            "Nivel de riesgo": res["Semáforo"].map(NOMBRE_ESTADO),
+            "Avisos": res["Avisos"],
+            "Fila del archivo": res["Fila"],
+        })
+        for col in COLUMNAS_PLANTILLA:
+            df[encabezado(col).rstrip(" *")] = res[col].map(lambda v, c=col: valor_plantilla(c, v))
+        return df
+
     def exportar(self, formato: str) -> None:
         if self.lote is None:
             return
-        base = self.archivo.stem if self.archivo else "lote"
+        base = self.archivo.stem if self.archivo else "estudiantes"
         filtro = "CSV (*.csv)" if formato == "csv" else "Excel (*.xlsx)"
         ruta = self._ruta_guardar("Exportar resultados", f"resultados_{base}.{formato}", filtro)
         if not ruta:
             return
-        df = self.lote.resultado.copy()
-        df.insert(5, "Carrera (nombre)", df[COL_CARRERA].map(lambda c: CARRERAS.get(int(c), str(int(c)))))
+        df = self.tabla_exportable()
         try:
             if formato == "csv":
                 df.to_csv(ruta, index=False, encoding="utf-8-sig")
@@ -359,23 +420,30 @@ class VistaLote(QWidget):
                 with pd.ExcelWriter(ruta, engine="openpyxl") as libro:
                     df.to_excel(libro, index=False, sheet_name="Resultados")
                     if not self.lote.problemas.empty:
-                        self.lote.problemas.to_excel(libro, index=False, sheet_name="Problemas")
+                        self._problemas_exportables().to_excel(libro, index=False, sheet_name="Problemas")
         except OSError as e:
             QMessageBox.critical(self, "No se pudo exportar",
                                  f"No se pudo escribir el archivo (¿está abierto en otro programa?):\n{e}")
             return
         QMessageBox.information(self, "Exportado", f"Resultados guardados en:\n{ruta}")
 
+    def _problemas_exportables(self) -> pd.DataFrame:
+        return self.lote.problemas.rename(columns={COL_ID: "ID estudiante", "Fila": "Fila del archivo"})
+
     def exportar_problemas(self) -> None:
         if self.lote is None or self.lote.problemas.empty:
             QMessageBox.information(self, "Sin problemas", "El archivo no tiene errores ni advertencias.")
             return
-        base = self.archivo.stem if self.archivo else "lote"
-        ruta = self._ruta_guardar("Exportar problemas", f"problemas_{base}.csv", "CSV (*.csv)")
+        base = self.archivo.stem if self.archivo else "estudiantes"
+        ruta = self._ruta_guardar("Exportar problemas", f"problemas_{base}.xlsx",
+                                  "Excel (*.xlsx);;CSV (*.csv)")
         if not ruta:
             return
         try:
-            self.lote.problemas.to_csv(ruta, index=False, encoding="utf-8-sig")
+            if ruta.lower().endswith(".csv"):
+                self._problemas_exportables().to_csv(ruta, index=False, encoding="utf-8-sig")
+            else:
+                self._problemas_exportables().to_excel(ruta, index=False, sheet_name="Problemas")
         except OSError as e:
             QMessageBox.critical(self, "No se pudo exportar", str(e))
             return
@@ -385,17 +453,19 @@ class VistaLote(QWidget):
         if self.lote is None or self.guardado or self.lote.resultado.empty:
             return
         res = self.lote.resultado
-        r = QMessageBox.question(
-            self, "Guardar en historial",
-            f"¿Guardar las {len(res):,} evaluaciones de «{self.archivo.name}» en el historial?",
-        )
+        previo = self.historial.fecha_archivo_guardado(self.archivo.name)
+        pregunta = f"¿Guardar las {len(res):,} evaluaciones de «{self.archivo.name}» en el historial?"
+        if previo:
+            pregunta = (f"Ya guardaste evaluaciones de «{self.archivo.name}» el {fecha_legible(previo)}.\n\n"
+                        f"¿Guardar de nuevo las {len(res):,} evaluaciones? Quedarán duplicadas en el historial.")
+        r = QMessageBox.question(self, "Guardar en historial", pregunta)
         if r != QMessageBox.StandardButton.Yes:
             return
         umbral = self.servicio.umbral
         perfiles = res[ALL_FEATURE_COLS].to_dict("records")
         filas = [
             {"estudiante_id": str(i), "probabilidad": p, "semaforo": s, "umbral": umbral,
-             "perfil": perfil, "notas": f"Lote: {self.archivo.name}" + (f" · ⚠ {a}" if a else "")}
+             "perfil": perfil, "notas": f"Archivo: {self.archivo.name}" + (f" · Aviso: {a}" if a else "")}
             for i, p, s, a, perfil in zip(res[COL_ID], res["Prob. Deserción"], res["Semáforo"],
                                           res["Avisos"], perfiles)
         ]
@@ -406,7 +476,8 @@ class VistaLote(QWidget):
         self.historial_cambiado.emit()
 
     def guardar_plantilla_excel(self) -> None:
-        ruta = self._ruta_guardar("Guardar plantilla Excel", "plantilla_retenia.xlsx", "Excel (*.xlsx)")
+        ruta = self._ruta_guardar("Guardar plantilla Excel", "plantilla_estudiantes_retenia.xlsx",
+                                  "Excel (*.xlsx)")
         if not ruta:
             return
         try:
@@ -416,21 +487,7 @@ class VistaLote(QWidget):
             return
         QMessageBox.information(
             self, "Plantilla guardada",
-            f"Plantilla guardada en:\n{ruta}\n\nIncluye las hojas «Instrucciones», «Estudiantes» (con 4 "
-            "ejemplos) y «Diccionario». Excel avisará si escribes un valor no permitido.",
-        )
-
-    def guardar_plantilla_csv(self) -> None:
-        ruta = self._ruta_guardar("Guardar plantilla CSV", "plantilla_retenia.csv", "CSV (*.csv)")
-        if not ruta:
-            return
-        try:
-            shutil.copyfile(rutas.PLANTILLA_LOTE, ruta)
-        except OSError as e:
-            QMessageBox.critical(self, "No se pudo guardar", str(e))
-            return
-        QMessageBox.information(
-            self, "Plantilla guardada",
-            f"Plantilla guardada en:\n{ruta}\n\nTiene las {len(ALL_FEATURE_COLS)} columnas del modelo "
-            "y 4 filas de ejemplo. Reemplázalas por tus estudiantes.",
+            f"Plantilla guardada en:\n{ruta}\n\nÁbrela en Excel y completa la hoja «Estudiantes». "
+            "Las columnas azules (con *) son obligatorias; al seleccionar una celda, Excel te muestra qué "
+            "escribir. La hoja «Valores válidos» explica cada columna.",
         )

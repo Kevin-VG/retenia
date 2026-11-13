@@ -8,6 +8,16 @@
     "accuracy": 0.8836,
     "roc_auc": 0.9343
   },
+  "metricas_test_umbral_operativo": {
+    "f1": 0.8266,
+    "precision": 0.8223,
+    "recall": 0.831,
+    "accuracy": 0.8881,
+    "roc_auc": 0.9343,
+    "abandonaron": 284,
+    "detectados": 236,
+    "alertas": 287
+  },
   "n_train": 3539,
   "n_test": 885,
   "tasa_abandono_base": 0.3212,

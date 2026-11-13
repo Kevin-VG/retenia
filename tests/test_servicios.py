@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from app import rutas
+from tests.conftest import LOTE_COMPLETO
 from app.core import scoring
 from app.core.variables import (
     ALL_FEATURE_COLS, COL_APROB_1, COL_APROB_2, COL_ID, COL_MATRIC_1, ENTRADAS_FORMULARIO,
@@ -51,12 +51,13 @@ def test_mas_aprobadas_menos_riesgo(servicio):
 def test_describir_valor():
     assert describir_valor("Course", 9500) == "Enfermería"
     assert describir_valor("Debtor", 1) == "Sí"
+    assert describir_valor("Gender", 0) == "Femenino"
     assert describir_valor("Admission grade", 127.3) == "127.30"
 
 
 # ---------------------------------------------------------------- lotes
 def test_lote_csv_punto_y_coma_con_alias(servicio):
-    df = pd.read_csv(rutas.PLANTILLA_LOTE).rename(columns={"Marital Status": "Marital status"})
+    df = pd.read_csv(LOTE_COMPLETO).rename(columns={"Marital Status": "Marital status"})
     contenido = df.to_csv(sep=";", index=False).encode("utf-8-sig")
     lote = servicio.evaluar_lote(scoring.leer_lote(contenido))
     assert len(lote.resultado) == 4 and lote.metricas is None
@@ -66,7 +67,7 @@ def test_lote_csv_punto_y_coma_con_alias(servicio):
 
 
 def test_lote_excel_y_filas_invalidas(servicio, tmp_path):
-    df = pd.read_csv(rutas.PLANTILLA_LOTE)
+    df = pd.read_csv(LOTE_COMPLETO)
     df["GDP"] = df["GDP"].astype(object)
     df.loc[1, "GDP"] = "no-numérico"
     ruta = tmp_path / "lote.xlsx"
@@ -81,9 +82,9 @@ def test_lote_sin_columnas_da_error_claro(servicio):
 
 
 def test_lote_sin_id_genera_identificador(servicio):
-    df = pd.read_csv(rutas.PLANTILLA_LOTE).drop(columns=[COL_ID])
+    df = pd.read_csv(LOTE_COMPLETO).drop(columns=[COL_ID])
     lote = servicio.evaluar_lote(df)
-    assert lote.resultado[COL_ID].str.startswith("FILA-").all()
+    assert lote.resultado[COL_ID].tolist() == ["Fila 3", "Fila 4", "Fila 2", "Fila 5"]
 
 
 # ---------------------------------------------------------------- historial
