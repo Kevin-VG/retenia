@@ -9,6 +9,8 @@ COLOR_ESTADO = {"Rojo": "#d03b3b", "Amarillo": "#e0a106", "Verde": "#0c8a0c"}
 FONDO_ESTADO = {"Rojo": "#fdecec", "Amarillo": "#fff6dd", "Verde": "#e8f6e8"}
 ICONO_ESTADO = {"Rojo": "●", "Amarillo": "●", "Verde": "●"}
 NOMBRE_ESTADO = {"Rojo": "Riesgo alto", "Amarillo": "Riesgo moderado", "Verde": "Riesgo bajo"}
+COLOR_NIVEL = {"Error": "#b91c1c", "Advertencia": "#a16207"}
+FONDO_NIVEL = {"Error": "#fdecec", "Advertencia": "#fff6dd"}
 
 ROL_ORDEN = Qt.ItemDataRole.UserRole + 1
 
@@ -77,6 +79,7 @@ class ModeloTabla(QAbstractTableModel):
         self._columnas = list(self.df.columns)
         self._valores = self.df.to_numpy(dtype=object)
         self._idx_semaforo = self._columnas.index("Semáforo") if "Semáforo" in self._columnas else None
+        self._idx_nivel = self._columnas.index("Nivel") if "Nivel" in self._columnas else None
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
@@ -104,6 +107,14 @@ class ModeloTabla(QAbstractTableModel):
                 return QBrush(QColor(COLOR_ESTADO.get(estado, "#0c1938")))
             if role == Qt.ItemDataRole.BackgroundRole and col == "Semáforo":
                 return QBrush(QColor(FONDO_ESTADO.get(estado, "#ffffff")))
+        if self._idx_nivel is not None:
+            nivel = self._valores[index.row(), self._idx_nivel]
+            if role == Qt.ItemDataRole.ForegroundRole and col in ("Nivel", "Problema"):
+                return QBrush(QColor(COLOR_NIVEL.get(nivel, "#0c1938")))
+            if role == Qt.ItemDataRole.BackgroundRole and col == "Nivel":
+                return QBrush(QColor(FONDO_NIVEL.get(nivel, "#ffffff")))
+        if role == Qt.ItemDataRole.ToolTipRole and col in ("Avisos", "Problema") and valor:
+            return str(valor)
         if role == Qt.ItemDataRole.TextAlignmentRole and isinstance(valor, (int, float, np.number)):
             # Números puros a la derecha; valores traducidos a texto (carrera, Sí/No) a la izquierda
             if col in self.formatos and col != "Prob. Deserción":
@@ -124,11 +135,12 @@ class ModeloTabla(QAbstractTableModel):
 
 
 class FiltroTabla(QSortFilterProxyModel):
-    """Filtra por semáforo y por texto en columnas dadas; ordena por el valor real."""
+    """Filtra por una columna de estado (Semáforo o Nivel) y por texto; ordena por el valor real."""
 
-    def __init__(self, columnas_texto: list[str], parent=None):
+    def __init__(self, columnas_texto: list[str], columna_estado: str = "Semáforo", parent=None):
         super().__init__(parent)
         self.columnas_texto = columnas_texto
+        self.columna_estado = columna_estado
         self.semaforo: str | None = None
         self.texto = ""
         self.setSortRole(ROL_ORDEN)
@@ -146,7 +158,8 @@ class FiltroTabla(QSortFilterProxyModel):
     def filterAcceptsRow(self, fila, padre):
         modelo: ModeloTabla = self.sourceModel()
         df = modelo.df
-        if self.semaforo and "Semáforo" in df.columns and df["Semáforo"].iat[fila] != self.semaforo:
+        col = self.columna_estado
+        if self.semaforo and col in df.columns and df[col].iat[fila] != self.semaforo:
             return False
         if self.texto:
             return any(

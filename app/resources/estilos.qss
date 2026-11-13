@@ -116,3 +116,22 @@ QSpinBox::down-button { subcontrol-position: bottom right; margin-bottom: 2px; }
 QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #eff6ff; border-radius: 4px; }
 QSpinBox::up-arrow { image: url(@RECURSOS@/flecha_arriba.svg); width: 10px; height: 10px; }
 QSpinBox::down-arrow { image: url(@RECURSOS@/flecha_abajo.svg); width: 10px; height: 10px; }
+
+/* ---------- Revisión del lote ---------- */
+#resumenRevision { border-radius: 8px; padding: 8px 12px; border: 1px solid #e2e8f0; background: #ffffff; }
+#resumenRevision[estado="error"] { background: #fdecec; border-color: #f5b5b5; }
+#resumenRevision[estado="advertencia"] { background: #fff6dd; border-color: #f3d27a; }
+#resumenRevision[estado="ok"] { background: #e8f6e8; border-color: #a7d8a7; }
+
+QTabWidget::pane { border: none; }
+QTabBar::tab {
+    background: transparent; color: #52514e; padding: 8px 16px; margin-right: 4px;
+    border: none; border-bottom: 2px solid transparent; font-weight: 600;
+}
+QTabBar::tab:selected { color: #1d4ed8; border-bottom: 2px solid #2563eb; }
+QTabBar::tab:hover { color: #0c1938; }
+
+QMenu { background: #ffffff; border: 1px solid #cbd5e1; padding: 4px; }
+QMenu::item { padding: 7px 18px; border-radius: 4px; }
+QMenu::item:selected { background: #dbeafe; color: #0c1938; }
+QPushButton::menu-indicator { width: 0; }

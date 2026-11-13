@@ -21,7 +21,7 @@
 | Función | Descripción |
 |---|---|
 | **Evaluar estudiante** | Formulario con 10 datos clave → probabilidad de abandono, semáforo (🟢 🟡 🔴), qué datos suben o bajan el riesgo y plan de acción sugerido. |
-| **Carga por lote** | Abre o arrastra un CSV o Excel con muchos estudiantes → tabla ordenada por riesgo, filtros, exportación a CSV/Excel. Si el archivo trae el resultado real, muestra las métricas. |
+| **Carga por lote** | Plantilla Excel o CSV descargable. Abre o arrastra el archivo → revisión fila por fila (errores y advertencias), tabla ordenada por riesgo, filtros, exportación a CSV/Excel. |
 | **Historial** | Guarda evaluaciones en una base local (SQLite) con notas de seguimiento. Búsqueda por ID, nombre o notas. |
 | **Ficha PDF** | Informe por estudiante listo para derivar a Bienestar Universitario. |
 
@@ -54,19 +54,35 @@ si no coincide, avisa en vez de dar predicciones poco fiables.
 
 ## Capturas
 
-| Carga por lote | Historial | Ficha |
+| Carga por lote | Revisión de problemas |
+|---|---|
+| ![Lote](docs/capturas/lote.png) | ![Problemas](docs/capturas/problemas.png) |
+
+| Historial | Ficha |
+|---|---|
+| ![Historial](docs/capturas/historial.png) | ![Ficha](docs/capturas/ficha.png) |
+
+## Carga por lote
+
+**Plantilla:** en *Carga por lote → Descargar plantilla* hay dos opciones.
+
+- **Excel (recomendada):** hoja de *Instrucciones*, hoja *Estudiantes* con 4 ejemplos, *Diccionario* con el
+  significado y los valores permitidos de cada columna, y listas desplegables. Excel avisa si escribes un
+  valor no permitido.
+- **CSV:** las mismas columnas con 4 filas de ejemplo.
+
+El archivo debe tener las **36 columnas** del dataset UCI (mismos nombres en inglés). Columnas opcionales:
+`id_estudiante` (identificador) y `dropout` (0/1) o `Target`, para comparar el modelo con el resultado real.
+
+**Revisión fila por fila.** Al cargar el archivo, cada fila se revisa y la pestaña *Problemas* indica la
+fila del archivo, la columna, el valor y qué corregir. Se puede exportar.
+
+| Nivel | Casos | Qué pasa con la fila |
 |---|---|---|
-| ![Lote](docs/capturas/lote.png) | ![Historial](docs/capturas/historial.png) | ![Ficha](docs/capturas/ficha.png) |
+| ✗ **Error** | vacío, texto en un campo numérico, decimal donde va un entero, Sí/No distinto de 0/1, valor imposible (nota > 20, edad negativa…), aprobadas o convalidadas mayores que matriculadas | **No se evalúa** |
+| ⚠ **Advertencia** | código que el modelo no conoce, valor fuera de lo visto en entrenamiento, promedio > 0 sin aprobadas, ID repetido | Se evalúa, con aviso en la columna *Avisos* |
 
-## Formato del archivo por lote
-
-CSV (separado por `,` o `;`) o Excel `.xlsx` con las **36 columnas** del dataset UCI (mismos nombres en inglés).
-Columnas opcionales:
-
-- `id_estudiante` — identificador que aparece en la tabla, el historial y la ficha.
-- `dropout` (0/1) o `Target` (`Dropout`/`Enrolled`/`Graduate`) — si están, se calculan las métricas.
-
-Desde la app: **Carga por lote → Guardar plantilla de ejemplo**.
+Si faltan columnas obligatorias, la app las lista todas y no carga el archivo.
 
 ## Desarrollo
 

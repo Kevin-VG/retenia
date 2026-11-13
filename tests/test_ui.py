@@ -43,6 +43,20 @@ def test_ventana_flujo_completo(qapp, servicio, historial, tmp_path):
     lote.proxy.set_semaforo("Rojo")
     assert lote.proxy.rowCount() >= 1
     lote.proxy.set_semaforo(None)
+    assert "sin problemas" in lote.lbl_resumen.text()
+
+    # Archivo con errores: la pestaña «Problemas» los lista y esas filas no se evalúan
+    df = pd.read_csv(rutas.PLANTILLA_LOTE).astype(object)
+    df.loc[0, "GDP"] = "abc"
+    df.loc[1, "Course"] = 1234
+    con_errores = tmp_path / "con_errores.csv"
+    df.to_csv(con_errores, index=False)
+    lote.cargar(con_errores)
+    assert lote.modelo.rowCount() == 3 and lote.modelo_problemas.rowCount() == 2
+    assert lote.k_error.valor.text() == "1" and lote.pestanas.tabText(1) == "Problemas (2)"
+    lote.proxy_problemas.set_semaforo("Error")
+    assert lote.proxy_problemas.rowCount() == 1
+    lote.cargar(rutas.PLANTILLA_LOTE)
 
     from PySide6.QtWidgets import QMessageBox
     original = QMessageBox.question

@@ -44,10 +44,18 @@ def ejecutar(ruta_salida: Path) -> int:
                 Path(tmp) / "ficha.pdf",
             )
             informe["pdf_bytes"] = pdf.stat().st_size
+
+            from app.core.scoring import leer_excel
+            from app.services.plantilla import crear_plantilla_excel
+            xlsx = crear_plantilla_excel(Path(tmp) / "plantilla.xlsx", servicio)
+            lote_xlsx = servicio.evaluar_lote(leer_excel(xlsx))
+            informe["plantilla_excel"] = {"filas": len(lote_xlsx.resultado),
+                                          "problemas": len(lote_xlsx.problemas)}
             ventana.close()
 
         informe["ok"] = (
             informe["semaforos"] == ESPERADO and informe["filas_lote"] == 4 and informe["pdf_bytes"] > 5000
+            and informe["plantilla_excel"] == {"filas": 4, "problemas": 0}
         )
     except Exception:  # noqa: BLE001 - el informe debe recoger cualquier fallo
         informe["error"] = traceback.format_exc()

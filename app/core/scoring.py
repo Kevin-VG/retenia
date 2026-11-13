@@ -9,7 +9,7 @@ import pandas as pd
 
 from app.core.variables import (
     ALL_FEATURE_COLS, COL_APROB_1, COL_APROB_2, COL_BECA, COL_DEUDA, COL_EDAD,
-    COL_MATRIC_1, COL_MATRIC_2, COL_PAGOS, NOMINAL_COLS,
+    COL_MATRIC_1, COL_MATRIC_2, COL_PAGOS,
 )
 
 TARGET_COL = "Target"
@@ -122,36 +122,14 @@ def leer_lote(contenido: bytes) -> pd.DataFrame:
 
 
 def leer_excel(ruta) -> pd.DataFrame:
-    """Lee la primera hoja de un .xlsx. Lanza ValueError si no se puede leer."""
+    """Lee la hoja «Estudiantes» (la de la plantilla) o, si no existe, la primera hoja de un .xlsx."""
     try:
-        df = pd.read_excel(ruta, sheet_name=0, engine="openpyxl")
+        with pd.ExcelFile(ruta, engine="openpyxl") as libro:
+            hoja = "Estudiantes" if "Estudiantes" in libro.sheet_names else libro.sheet_names[0]
+            df = libro.parse(hoja)
     except Exception as e:  # openpyxl lanza tipos variados según el daño del archivo
         raise ValueError(f"No se pudo leer el Excel: {e}") from e
     return _normalizar_columnas(df)
-
-
-def preparar_lote(df: pd.DataFrame):
-    """Devuelve (X, validas): filas puntuables y máscara sobre el df original."""
-    faltan = [c for c in ALL_FEATURE_COLS if c not in df.columns]
-    if faltan:
-        raise ValueError(
-            f"Faltan {len(faltan)} de {len(ALL_FEATURE_COLS)} columnas: {', '.join(faltan[:5])}"
-            + (" ..." if len(faltan) > 5 else "")
-        )
-    X = df[ALL_FEATURE_COLS].apply(pd.to_numeric, errors="coerce")
-    validas = X.notna().all(axis=1)
-    return X[validas], validas
-
-
-def categorias_desconocidas(pipeline, X: pd.DataFrame) -> dict:
-    """Cuenta por columna los códigos nominales que el modelo no vio en train."""
-    encoder = pipeline.named_steps["preprocessor"].named_transformers_["nominal"]
-    conteo = {}
-    for col, conocidas in zip(NOMINAL_COLS, encoder.categories_):
-        n = int((~X[col].isin(conocidas)).sum())
-        if n:
-            conteo[col] = n
-    return conteo
 
 
 def etiquetas_reales(df: pd.DataFrame):

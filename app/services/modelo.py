@@ -8,7 +8,8 @@ import pandas as pd
 
 from app import rutas
 from app.core import scoring
-from app.core.variables import ALL_FEATURE_COLS, COL_CONV_1, COL_ID, ETIQUETAS
+from app.core.validacion import Validacion, validar_lote
+from app.core.variables import ALL_FEATURE_COLS, COL_CONV_1, COL_ID, ETIQUETAS, NOMINAL_COLS
 
 
 class ErrorModelo(RuntimeError):
@@ -30,10 +31,26 @@ class ResultadoIndividual:
 
 @dataclass
 class ResultadoLote:
-    resultado: pd.DataFrame      # filas válidas + Prob. Deserción + Semáforo, ordenadas por riesgo
-    descartadas: int
-    desconocidas: dict
+    resultado: pd.DataFrame      # filas sin errores + Prob. Deserción + Semáforo, ordenadas por riesgo
+    validacion: Validacion       # problemas detectados fila por fila
     metricas: dict | None        # si el archivo trae el resultado real
+
+    @property
+    def descartadas(self) -> int:
+        return self.validacion.n_errores
+
+    @property
+    def problemas(self) -> pd.DataFrame:
+        return self.validacion.problemas
+
+
+def categorias_del_modelo(pipeline) -> dict:
+    """Códigos nominales que el modelo vio al entrenar ({} si el pipeline no tiene ese paso)."""
+    try:
+        encoder = pipeline.named_steps["preprocessor"].named_transformers_["nominal"]
+        return {col: {float(v) for v in cats} for col, cats in zip(NOMINAL_COLS, encoder.categories_)}
+    except (AttributeError, KeyError):
+        return {}
 
 
 def cargar_pipeline(ruta: Path):
@@ -68,6 +85,10 @@ class ServicioModelo:
         self.medianas = {c: float(v) for c, v in self.config["medianas"].items()}
         self.rangos = {c: tuple(v) for c, v in self.config["rangos"].items()}
         self.perfiles = self.config["perfiles_ejemplo"]
+        self.rangos_entrenamiento = {
+            c: tuple(v) for c, v in self.config.get("rangos_entrenamiento", {}).items()
+        }
+        self.categorias_conocidas = categorias_del_modelo(self.pipeline)
 
     @property
     def nombre_modelo(self) -> str:
@@ -110,24 +131,32 @@ class ServicioModelo:
         )
 
     # ----- Evaluación por lote -----
+    def validar_lote(self, df: pd.DataFrame) -> Validacion:
+        return validar_lote(df, self.categorias_conocidas, self.rangos_entrenamiento)
+
     def evaluar_lote(self, df: pd.DataFrame, umbral: float | None = None) -> ResultadoLote:
+        """Valida fila por fila y evalúa las filas sin errores. Lanza ErrorArchivo si el archivo
+        no se puede usar en absoluto (p. ej. faltan columnas)."""
         umbral = self.umbral if umbral is None else umbral
-        X, validas = scoring.preparar_lote(df)
-        if X.empty:
-            raise ValueError("El archivo no tiene filas válidas para evaluar.")
-        proba = self.probabilidades(X)
-        resultado = df[validas].copy()
-        if COL_ID not in resultado.columns:
-            resultado.insert(0, COL_ID, [f"FILA-{i + 2}" for i in resultado.index])
+        df = df.reset_index(drop=True)
+        v = self.validar_lote(df)
+        validas = ~v.con_error
+        X = v.X[validas]
+
+        resultado = df[validas].drop(columns=[COL_ID], errors="ignore").copy()
         resultado[ALL_FEATURE_COLS] = X
-        resultado.insert(1, "Semáforo", scoring.semaforo(proba, umbral))
-        resultado.insert(1, "Prob. Deserción", proba.round(4))
+        proba = self.probabilidades(X) if len(X) else pd.Series(dtype=float).to_numpy()
+        avisos = v.avisos_por_fila()
+        resultado.insert(0, "Avisos", v.filas[validas].map(avisos).fillna("").to_numpy())
+        resultado.insert(0, "Fila", v.filas[validas].to_numpy())
+        resultado.insert(0, "Semáforo", scoring.semaforo(proba, umbral))
+        resultado.insert(0, "Prob. Deserción", proba.round(4))
+        resultado.insert(0, COL_ID, v.ids[validas].to_numpy())
         resultado = resultado.sort_values("Prob. Deserción", ascending=False, kind="stable")
 
-        y = scoring.etiquetas_reales(df[validas])
+        y = scoring.etiquetas_reales(df[validas]) if len(X) else None
         return ResultadoLote(
             resultado=resultado.reset_index(drop=True),
-            descartadas=int((~validas).sum()),
-            desconocidas=scoring.categorias_desconocidas(self.pipeline, X),
+            validacion=v,
             metricas=None if y is None else scoring.metricas(y, proba, umbral),
         )

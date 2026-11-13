@@ -37,6 +37,84 @@
       19
     ]
   },
+  "rangos_entrenamiento": {
+    "Application order": [
+      0,
+      9
+    ],
+    "Age at enrollment": [
+      17,
+      70
+    ],
+    "Previous qualification (grade)": [
+      95.0,
+      190.0
+    ],
+    "Admission grade": [
+      95.0,
+      190.0
+    ],
+    "Curricular units 1st sem (credited)": [
+      0,
+      20
+    ],
+    "Curricular units 1st sem (enrolled)": [
+      0,
+      26
+    ],
+    "Curricular units 1st sem (evaluations)": [
+      0,
+      45
+    ],
+    "Curricular units 1st sem (approved)": [
+      0,
+      26
+    ],
+    "Curricular units 1st sem (grade)": [
+      0.0,
+      18.875
+    ],
+    "Curricular units 1st sem (without evaluations)": [
+      0,
+      12
+    ],
+    "Curricular units 2nd sem (credited)": [
+      0,
+      19
+    ],
+    "Curricular units 2nd sem (enrolled)": [
+      0,
+      23
+    ],
+    "Curricular units 2nd sem (evaluations)": [
+      0,
+      33
+    ],
+    "Curricular units 2nd sem (approved)": [
+      0,
+      20
+    ],
+    "Curricular units 2nd sem (grade)": [
+      0.0,
+      18.571
+    ],
+    "Curricular units 2nd sem (without evaluations)": [
+      0,
+      12
+    ],
+    "Unemployment rate": [
+      7.6,
+      16.2
+    ],
+    "Inflation rate": [
+      -0.8,
+      3.7
+    ],
+    "GDP": [
+      -4.06,
+      3.51
+    ]
+  },
   "perfiles_ejemplo": {
     "riesgo": {
       "Curricular units 1st sem (approved)": 0,
