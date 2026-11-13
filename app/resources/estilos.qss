@@ -1,0 +1,118 @@
+/* RetenIA — paleta coherente con la app web (azul marino + azul primario) */
+
+QWidget {
+    font-family: "Segoe UI", "Inter", sans-serif;
+    font-size: 10pt;
+    color: #0c1938;
+}
+
+QMainWindow, QStackedWidget > QWidget, QScrollArea, QScrollArea > QWidget > QWidget {
+    background: #f8fafc;
+}
+
+/* ---------- Barra lateral ---------- */
+#barraLateral { background: #0c1938; }
+#barraLateral QLabel { color: #ffffff; background: transparent; }
+#marca { font-size: 20pt; font-weight: 700; }
+#lema { color: #94a3b8; font-size: 9pt; }
+#chipModelo {
+    background: #172554; border: 1px solid #1e3a8a; border-radius: 8px;
+    padding: 8px 10px; color: #bfdbfe; font-size: 9pt;
+}
+#menu { background: transparent; border: none; outline: none; }
+#menu::item {
+    color: #cbd5e1; padding: 10px 12px; border-radius: 8px; margin: 2px 0;
+}
+#menu::item:hover { background: #172554; color: #ffffff; }
+#menu::item:selected { background: #2563eb; color: #ffffff; font-weight: 600; }
+
+/* ---------- Títulos ---------- */
+#tituloVista { font-size: 18pt; font-weight: 700; color: #0c1938; }
+#subtituloVista { color: #52514e; font-size: 10pt; }
+#tituloTarjeta { font-size: 11pt; font-weight: 700; color: #0c1938; }
+#seccionForm {
+    color: #2563eb; font-size: 8.5pt; font-weight: 700; letter-spacing: 1px;
+    padding-top: 10px;
+}
+#leyenda { color: #52514e; font-size: 9pt; }
+#aviso { color: #475569; font-size: 10.5pt; padding: 10px; }
+
+/* ---------- Tarjetas ---------- */
+#tarjeta, #tarjetaResultado, #zonaSoltar {
+    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
+}
+#zonaSoltar { border: 2px dashed #93c5fd; background: #f8fbff; }
+#kpiTitulo { color: #52514e; font-size: 9pt; }
+#kpiValor { font-size: 20pt; font-weight: 700; }
+#probGrande { font-size: 34pt; font-weight: 800; }
+#estado { font-size: 15pt; font-weight: 700; }
+
+#errores {
+    background: #fdecec; border: 1px solid #f5b5b5; border-radius: 8px;
+    color: #9f1d1d; padding: 8px 10px;
+}
+
+/* ---------- Controles ---------- */
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {
+    background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px;
+    padding: 5px 8px; min-height: 22px;
+    selection-background-color: #2563eb;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus { border: 1px solid #2563eb; }
+
+QPushButton {
+    background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px;
+    padding: 7px 14px; font-weight: 600;
+}
+QPushButton:hover { background: #f1f5f9; }
+QPushButton:pressed { background: #e2e8f0; }
+QPushButton:disabled { color: #94a3b8; background: #f1f5f9; }
+QPushButton#primario { background: #2563eb; color: #ffffff; border: 1px solid #1d4ed8; }
+QPushButton#primario:hover { background: #1d4ed8; }
+QPushButton#primario:disabled { background: #93c5fd; border-color: #93c5fd; color: #ffffff; }
+QPushButton#peligro { color: #b91c1c; border-color: #fca5a5; }
+QPushButton#peligro:hover { background: #fdecec; }
+QPushButton#chip {
+    padding: 4px 10px; border-radius: 12px; font-weight: 500; font-size: 9pt;
+    background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;
+}
+QPushButton#chip:hover { background: #dbeafe; }
+
+QProgressBar { background: #e2e8f0; border: none; border-radius: 6px; }
+
+/* ---------- Tablas ---------- */
+QTableView {
+    background: #ffffff; alternate-background-color: #f8fafc;
+    border: 1px solid #e2e8f0; border-radius: 10px; gridline-color: #eef2f7;
+    selection-background-color: #dbeafe; selection-color: #0c1938;
+}
+QHeaderView::section {
+    background: #f1f5f9; color: #334155; font-weight: 600;
+    border: none; border-bottom: 1px solid #e2e8f0; padding: 6px 8px;
+}
+
+QStatusBar { background: #ffffff; color: #52514e; border-top: 1px solid #e2e8f0; }
+QToolTip { background: #0c1938; color: #ffffff; border: none; padding: 6px; }
+QTextBrowser { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; }
+
+/* ---------- Flechas de combos y spinboxes (rutas resueltas al cargar: @RECURSOS@) ---------- */
+QComboBox { padding-right: 26px; }
+QComboBox::drop-down {
+    subcontrol-origin: padding; subcontrol-position: center right;
+    width: 24px; border: none; background: transparent;
+}
+QComboBox::down-arrow { image: url(@RECURSOS@/flecha_abajo.svg); width: 12px; height: 12px; }
+QComboBox QAbstractItemView {
+    background: #ffffff; border: 1px solid #cbd5e1; selection-background-color: #dbeafe;
+    selection-color: #0c1938; outline: none;
+}
+
+QSpinBox { padding-right: 24px; }
+QSpinBox::up-button, QSpinBox::down-button {
+    subcontrol-origin: border; width: 22px; border: none; background: transparent;
+}
+QSpinBox::up-button { subcontrol-position: top right; margin-top: 2px; }
+QSpinBox::down-button { subcontrol-position: bottom right; margin-bottom: 2px; }
+QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #eff6ff; border-radius: 4px; }
+QSpinBox::up-arrow { image: url(@RECURSOS@/flecha_arriba.svg); width: 10px; height: 10px; }
+QSpinBox::down-arrow { image: url(@RECURSOS@/flecha_abajo.svg); width: 10px; height: 10px; }

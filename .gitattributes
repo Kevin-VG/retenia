@@ -1,0 +1,5 @@
+* text=auto
+*.joblib binary
+*.ico binary
+*.png binary
+*.svg text eol=lf

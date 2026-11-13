@@ -1,0 +1,91 @@
+name: Release
+
+# Publicar una versión:  git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      - name: Versión del tag
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $codigo = python -c "import app; print(app.__version__)"
+          if ($codigo -ne $v) { throw "El tag ($v) no coincide con app/__init__.py ($codigo)" }
+
+      - name: Pruebas
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Compilar ejecutable (PyInstaller)
+        run: pyinstaller packaging/retenia.spec --noconfirm --clean
+
+      - name: Autoprueba del ejecutable congelado
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $p = Start-Process dist\RetenIA\RetenIA.exe -ArgumentList "--autoprueba","autoprueba.json" -Wait -PassThru
+          Get-Content autoprueba.json
+          if ($p.ExitCode -ne 0) { throw "La autoprueba del ejecutable falló" }
+
+      - name: Zip portable
+        shell: pwsh
+        run: Compress-Archive -Path dist\RetenIA -DestinationPath "dist\RetenIA-$env:VERSION-win64-portable.zip"
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVersion=$env:VERSION" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup falló" }
+
+      - name: Sumas SHA-256
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\*.zip, dist\*-Setup.exe | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Out-File dist\SHA256SUMS.txt -Encoding ascii
+          Get-Content dist\SHA256SUMS.txt
+
+      - name: Publicar en GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          name: RetenIA ${{ env.VERSION }}
+          generate_release_notes: true
+          body: |
+            ## Descargas
+            | Archivo | Para qué |
+            |---|---|
+            | `RetenIA-${{ env.VERSION }}-Setup.exe` | **Recomendado.** Instalador con acceso directo y desinstalador. No requiere administrador. |
+            | `RetenIA-${{ env.VERSION }}-win64-portable.zip` | Versión portable: descomprimir y abrir `RetenIA.exe`. |
+            | `SHA256SUMS.txt` | Sumas de verificación. |
+
+            Requisitos: Windows 10/11 de 64 bits. No necesita Python ni conexión a internet.
+
+            > Windows SmartScreen puede mostrar «Windows protegió su PC» porque el ejecutable no está firmado
+            > digitalmente. Pulsa **Más información → Ejecutar de todas formas**.
+          files: |
+            dist/RetenIA-*-Setup.exe
+            dist/RetenIA-*-win64-portable.zip
+            dist/SHA256SUMS.txt

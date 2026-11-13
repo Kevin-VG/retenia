@@ -1,0 +1,20 @@
+# Entorno
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Empaquetado (se genera en CI y se publica en Releases)
+build/
+dist/
+
+# Datos locales
+*.db
+autoprueba.json
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
