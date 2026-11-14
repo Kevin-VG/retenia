@@ -1,9 +1,12 @@
 """Componentes reutilizables de la interfaz."""
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QSortFilterProxyModel, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QIntValidator
+from PySide6.QtWidgets import (
+    QButtonGroup, QComboBox, QCompleter, QFrame, QHBoxLayout, QLabel, QLineEdit, QListView, QPushButton,
+    QToolButton, QVBoxLayout, QWidget,
+)
 
 COLOR_ESTADO = {"Rojo": "#c62828", "Amarillo": "#b77900", "Verde": "#0c7a0c"}
 FONDO_ESTADO = {"Rojo": "#fdecec", "Amarillo": "#fff6dd", "Verde": "#e8f6e8"}
@@ -211,3 +214,178 @@ def mensaje_vacio(texto: str) -> QLabel:
     lbl.setWordWrap(True)
     lbl.setTextFormat(Qt.TextFormat.RichText)
     return lbl
+
+
+# ---------------------------------------------------------------------------- campos del formulario
+# Todos comparten la misma interfaz: value() (None si está vacío), setValue(), vaciar(),
+# set_invalido() y la señal valueChanged.
+
+def _refrescar_estilo(widget, propiedad: str, valor) -> None:
+    if widget.property(propiedad) != valor:
+        widget.setProperty(propiedad, valor)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+
+class CampoNumero(QWidget):
+    """Número entero que puede quedar vacío: [−] [ valor ] [+]. Flechas ↑/↓ también cambian el valor."""
+
+    valueChanged = Signal()
+
+    def __init__(self, minimo: int, maximo: int, parent=None):
+        super().__init__(parent)
+        self.minimo, self.maximo = minimo, maximo
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self.menos = self._boton("−", "Restar 1", -1)
+        self.edit = QLineEdit()
+        self.edit.setValidator(QIntValidator(minimo, maximo, self))
+        self.edit.setPlaceholderText(f"{minimo}–{maximo}")
+        self.edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.edit.textChanged.connect(lambda *_: self.valueChanged.emit())
+        self.edit.installEventFilter(self)
+        self.mas = self._boton("+", "Sumar 1", +1)
+        lay.addWidget(self.menos)
+        lay.addWidget(self.edit, 1)
+        lay.addWidget(self.mas)
+        self.setFocusProxy(self.edit)
+
+    def _boton(self, texto, ayuda, paso) -> QToolButton:
+        b = QToolButton()
+        b.setText(texto)
+        b.setObjectName("paso")
+        b.setToolTip(ayuda)
+        b.setAutoRepeat(True)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.clicked.connect(lambda: self.paso(paso))
+        return b
+
+    def eventFilter(self, obj, evento):
+        if obj is self.edit and evento.type() == QEvent.Type.KeyPress:
+            if evento.key() == Qt.Key.Key_Up:
+                self.paso(+1)
+                return True
+            if evento.key() == Qt.Key.Key_Down:
+                self.paso(-1)
+                return True
+        return super().eventFilter(obj, evento)
+
+    def paso(self, delta: int) -> None:
+        actual = self.value()
+        nuevo = self.minimo if actual is None else actual + delta
+        self.setValue(max(self.minimo, min(self.maximo, nuevo)))
+
+    def value(self) -> int | None:
+        texto = self.edit.text().strip()
+        return int(texto) if texto.lstrip("-").isdigit() else None
+
+    def setValue(self, valor) -> None:
+        self.edit.setText("" if valor is None else str(int(valor)))
+
+    def vaciar(self) -> None:
+        self.setValue(None)
+
+    def set_invalido(self, invalido: bool) -> None:
+        _refrescar_estilo(self.edit, "invalido", invalido)
+
+
+class OpcionSiNo(QWidget):
+    """Botones excluyentes (por defecto «Sí» / «No»): un clic en vez de abrir una lista."""
+
+    valueChanged = Signal()
+
+    def __init__(self, opciones=(("Sí", 1), ("No", 0)), parent=None):
+        super().__init__(parent)
+        self.setObjectName("opciones")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self.grupo = QButtonGroup(self)
+        self.botones = {}
+        for texto, valor in opciones:
+            b = QPushButton(texto)
+            b.setObjectName("opcion")
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.grupo.addButton(b)
+            self.botones[valor] = b
+            lay.addWidget(b, 1)
+        self.grupo.buttonToggled.connect(lambda _b, marcado: marcado and self.valueChanged.emit())
+
+    def value(self):
+        for valor, b in self.botones.items():
+            if b.isChecked():
+                return valor
+        return None
+
+    def setValue(self, valor) -> None:
+        if valor is None or int(valor) not in self.botones:
+            self.vaciar()
+        else:
+            self.botones[int(valor)].setChecked(True)
+
+    def vaciar(self) -> None:
+        self.grupo.setExclusive(False)
+        for b in self.botones.values():
+            b.setChecked(False)
+        self.grupo.setExclusive(True)
+        self.valueChanged.emit()
+
+    def set_invalido(self, invalido: bool) -> None:
+        for b in self.botones.values():
+            _refrescar_estilo(b, "invalido", invalido)
+
+
+class SelectorBusqueda(QComboBox):
+    """Lista desplegable en la que también se puede escribir para buscar (coincidencia parcial).
+
+    La rueda del ratón solo cambia la opción si el selector tiene el foco, para no modificarlo sin
+    querer al desplazar el formulario.
+    """
+
+    valueChanged = Signal()
+
+    def __init__(self, opciones: dict, placeholder: str = "", parent=None):
+        super().__init__(parent)
+        self.setView(QListView())  # permite dar altura a los elementos desde la hoja de estilos
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMaxVisibleItems(20)
+        for valor, texto in sorted(opciones.items(), key=lambda kv: kv[1]):
+            self.addItem(texto, valor)
+        completer = QCompleter(self.model(), self)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.popup().setObjectName("sugerencias")
+        self.setCompleter(completer)
+        self.lineEdit().setPlaceholderText(placeholder)
+        self.setCurrentIndex(-1)
+        self.currentIndexChanged.connect(lambda *_: self.valueChanged.emit())
+        self.editTextChanged.connect(lambda *_: self.valueChanged.emit())
+
+    def wheelEvent(self, evento):
+        if self.hasFocus():
+            super().wheelEvent(evento)
+        else:
+            evento.ignore()
+
+    def value(self):
+        i = self.findText(self.currentText().strip(), Qt.MatchFlag.MatchFixedString)
+        return self.itemData(i) if i >= 0 else None
+
+    def setValue(self, valor) -> None:
+        if valor is None:
+            self.vaciar()
+        else:
+            self.setCurrentIndex(self.findData(int(valor)))
+
+    def vaciar(self) -> None:
+        self.setCurrentIndex(-1)
+        self.setEditText("")
+
+    def set_invalido(self, invalido: bool) -> None:
+        _refrescar_estilo(self, "invalido", invalido)

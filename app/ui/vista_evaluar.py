@@ -3,8 +3,8 @@ from html import escape
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar,
-    QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
 )
 
 from app.core.scoring import TEXTO_ESTADO, texto_escala
@@ -15,25 +15,11 @@ from app.core.variables import (
 from app.services import preferencias
 from app.services.reporte import ficha_html
 from app.ui.dialogo_ficha import guardar_pdf_interactivo
-from app.ui.widgets import COLOR_ESTADO, FONDO_ESTADO, Tarjeta, titulo_seccion
+from app.ui.widgets import (
+    COLOR_ESTADO, FONDO_ESTADO, CampoNumero, OpcionSiNo, SelectorBusqueda, Tarjeta, titulo_seccion,
+)
 
 GRIS = "#64748b"
-
-
-def _si_no() -> QComboBox:
-    combo = QComboBox()
-    combo.addItem("Sí", 1)
-    combo.addItem("No", 0)
-    combo.setPlaceholderText("Selecciona…")
-    combo.setCurrentIndex(-1)
-    return combo
-
-
-def _marcar(widget, invalido: bool) -> None:
-    if widget.property("invalido") != invalido:
-        widget.setProperty("invalido", invalido)
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
 
 
 class VistaEvaluar(QWidget):
@@ -78,11 +64,8 @@ class VistaEvaluar(QWidget):
         form.addRow("Nombre", self.nombre)
 
         self.campos = {}
-        carrera = QComboBox()
-        for codigo, nombre in sorted(CARRERAS.items(), key=lambda kv: kv[1]):
-            carrera.addItem(nombre, codigo)
-        carrera.setPlaceholderText("Selecciona la carrera…")
-        carrera.setCurrentIndex(-1)
+        carrera = SelectorBusqueda(CARRERAS, "Escribe o elige la carrera…")
+        carrera.setToolTip("Escribe parte del nombre para buscar, o abre la lista con la flecha")
         self.campos[COL_CARRERA] = carrera
         form.addRow(self._seccion("Datos generales"))
         form.addRow(ETIQUETAS[COL_CARRERA], carrera)
@@ -100,16 +83,15 @@ class VistaEvaluar(QWidget):
             self.campos[col] = self._spin(col)
             form.addRow(etiqueta, self.campos[col])
         self.campos[COL_CONV_2].setToolTip(
-            self.campos[COL_CONV_2].toolTip() + "\nMaterias reconocidas por estudios anteriores (sin cursarlas).")
+            "Materias reconocidas por estudios anteriores (sin cursarlas). Normalmente 0.")
 
         form.addRow(self._seccion("Situación económica"))
         for col in (COL_PAGOS, COL_DEUDA, COL_BECA):
-            self.campos[col] = _si_no()
+            self.campos[col] = OpcionSiNo()
             form.addRow(ETIQUETAS[col], self.campos[col])
 
         for widget in self.campos.values():
-            senal = widget.currentIndexChanged if isinstance(widget, QComboBox) else widget.valueChanged
-            senal.connect(lambda *_, w=widget: self._dato_cambiado(w))
+            widget.valueChanged.connect(lambda w=widget: self._dato_cambiado(w))
 
         tarjeta.cuerpo.addLayout(form)
 
@@ -146,39 +128,29 @@ class VistaEvaluar(QWidget):
         lbl.setObjectName("seccionForm")
         return lbl
 
-    def _spin(self, col: str) -> QSpinBox:
-        """Campo numérico que empieza vacío («—»): el valor mínimo-1 representa «sin dato»."""
+    def _spin(self, col: str) -> CampoNumero:
+        """Campo numérico que empieza vacío, con botones −/+ y teclas ↑/↓."""
         minimo, maximo = self.servicio.rangos[col]
-        spin = QSpinBox()
-        spin.setRange(minimo - 1, maximo)
-        spin.setSpecialValueText("—")
-        spin.setToolTip(f"Valores permitidos: de {minimo} a {maximo}")
-        return spin
+        campo = CampoNumero(minimo, maximo)
+        campo.setToolTip(f"Valores permitidos: de {minimo} a {maximo}")
+        return campo
 
     @staticmethod
     def _vacio(widget) -> bool:
-        if isinstance(widget, QComboBox):
-            return widget.currentIndex() < 0
-        return widget.value() == widget.minimum()
+        return widget.value() is None
 
     def _aplicar(self, valores: dict) -> None:
         """Rellena el formulario con valores internos (códigos)."""
         for col, widget in self.campos.items():
-            if isinstance(widget, QComboBox):
-                widget.setCurrentIndex(widget.findData(int(valores[col])))
-            else:
-                widget.setValue(int(valores[col]))
+            widget.setValue(valores[col])
 
     def limpiar(self) -> None:
         """Vacía el formulario y oculta el resultado anterior."""
         self.id_estudiante.clear()
         self.nombre.clear()
         for widget in self.campos.values():
-            if isinstance(widget, QComboBox):
-                widget.setCurrentIndex(-1)
-            else:
-                widget.setValue(widget.minimum())
-            _marcar(widget, False)
+            widget.vaciar()
+            widget.set_invalido(False)
         self.errores.hide()
         self.resultado = None
         if hasattr(self, "panel"):
@@ -186,13 +158,10 @@ class VistaEvaluar(QWidget):
             self.vacio.show()
 
     def entradas(self) -> dict:
-        return {
-            col: (w.currentData() if isinstance(w, QComboBox) else w.value())
-            for col, w in self.campos.items()
-        }
+        return {col: w.value() for col, w in self.campos.items()}
 
     def _dato_cambiado(self, widget) -> None:
-        _marcar(widget, False)
+        widget.set_invalido(False)
         if self.resultado is not None and self.panel.isVisible():
             self.aviso_cambios.show()
             self.btn_guardar.setEnabled(False)
@@ -330,7 +299,7 @@ class VistaEvaluar(QWidget):
     def evaluar(self) -> None:
         faltan = [col for col, w in self.campos.items() if self._vacio(w)]
         for col, widget in self.campos.items():
-            _marcar(widget, col in faltan)
+            widget.set_invalido(col in faltan)
         if faltan:
             if len(faltan) > 3:
                 texto = f"Faltan {len(faltan)} datos: completa los campos marcados en rojo."

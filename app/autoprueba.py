@@ -28,7 +28,8 @@ def ejecutar(ruta_salida: Path) -> int:
         from app.ui.ventana import VentanaPrincipal
 
         app = QApplication.instance() or QApplication([])
-        app.setStyleSheet(rutas.hoja_estilos())
+        from app.ui.tema import aplicar_tema
+        aplicar_tema(app)
         servicio = ServicioModelo()
         resultados = {c: servicio.evaluar(p) for c, p in servicio.perfiles.items()}
         informe["version"] = __version__

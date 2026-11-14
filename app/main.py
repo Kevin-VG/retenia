@@ -6,7 +6,7 @@ import sys
 import traceback
 
 from PySide6.QtCore import QLibraryInfo, QLocale, Qt, QTranslator
-from PySide6.QtGui import QFont, QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen
 
 from app import APP_NAME, __version__, rutas
@@ -30,11 +30,10 @@ def main() -> int:
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
     app.setOrganizationName(APP_NAME)
-    app.setStyle("Fusion")
-    app.setFont(QFont("Segoe UI", 10))
+    from app.ui.tema import aplicar_tema
+    aplicar_tema(app)  # siempre claro, aunque Windows esté en modo oscuro
     if rutas.ICONO.exists():
         app.setWindowIcon(QIcon(str(rutas.ICONO)))
-    app.setStyleSheet(rutas.hoja_estilos())
 
     # Botones estándar de Qt (Cerrar, Sí, No, Cancelar…) en español
     traductor = QTranslator(app)

@@ -1,12 +1,12 @@
 ; Inno Setup 6: genera dist/RetenIA-<versión>-Setup.exe a partir de dist/RetenIA/
 ;
-;     iscc /DAppVersion=1.1.0 packaging/installer.iss
+;     iscc /DAppVersion=1.2.1 packaging/installer.iss
 ;
 ; Instala por usuario (sin pedir administrador). El historial vive en %APPDATA%\RetenIA
 ; y NO se borra al desinstalar.
 
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.2.1"
 #endif
 
 [Setup]
